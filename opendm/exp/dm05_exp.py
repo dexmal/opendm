@@ -170,7 +170,7 @@ class DM05OptimizerConfig(Config):
 class DM05TrainerConfig(Config):
     fsdp1: bool | None = field(default=True)
     output_dir: str = field(
-        default=f"user_checkpoints/dm05_sft/dm05_sft_{datetime.now().strftime('%Y%m%d')}"
+        default=f"user_checkpoints/{os.path.basename(__file__)}-{datetime.now().strftime('%Y%m%d')}"
     )
     num_train_steps: int = field(default=100000)
     per_device_train_batch_size: int = field(default=4)
@@ -569,6 +569,8 @@ class DM05Exp(Config):
         )
 
     def inference(self) -> None:
+        # Force eager attention for inference to avoid OOM issues with flex attention
+        self.model_config.llm_attn_implementation = "eager"
         model = self.model_config.build_model(use_lora=self.use_lora)
         ckpt_norm_stats_path = (
             pathlib.Path(self.model_config.model_name_or_path) / "norm_stats.json"

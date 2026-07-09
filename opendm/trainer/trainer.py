@@ -100,6 +100,7 @@ class DMTrainer(Trainer):
             "dataloader_prefetch_factor": getattr(
                 self.exp_config.trainer_config, "dataloader_prefetch_factor", None
             ),
+            "dataloader_drop_last": True,
             # Keep model_max_length controlled by the model or processor config.
             "bf16": self.exp_config.trainer_config.bf16,
             "tf32": self.exp_config.trainer_config.tf32,

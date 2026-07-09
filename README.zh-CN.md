@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.dexmal.com/blog/dm0.5/index.html"><img src="https://img.shields.io/badge/📖-Tech_Blog-blue" alt="Tech Blog"></a>
-  <a href="https://huggingface.co/Dexmal/models"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
+  <a href="https://huggingface.co/collections/Dexmal/dm05"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
   <a href="https://maas.dexmal.com/"><img src="https://img.shields.io/badge/MaaS-Online-brightgreen.svg" alt="MaaS"></a>
   <a href="#许可"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -78,27 +78,26 @@ conda create -n opendm python=3.10 -y
 conda activate opendm
 
 pip install torch torchvision \
-  --index-url https://download.pytorch.org/whl/cu128 \
-  --extra-index-url https://mirrors.ivolces.com/pypi/simple/
+  --index-url https://download.pytorch.org/whl/cu128
 
 pip install ninja packaging
 MAX_JOBS=2 pip install flash-attn --no-build-isolation
 
-# 在 OpenDM 仓库根目录运行。
+# 进入 OpenDM 仓库根目录。
 cd opendm
 pip install -e .
 ```
 
 ## 推理
 
-完成环境安装和源码初始化后，可以启动模型推理服务。推理服务会加载指定 checkpoint，并对外提供 HTTP 接口，供评测基准或其他客户端请求动作预测。
+完成环境安装和源码初始化后，可以启动模型推理服务。推理服务会加载指定 checkpoint，并对外提供 HTTP 接口，供评测基准或其他客户端请求动作预测。请使用包含 `norm_stats.json` 的 checkpoint，或确保 `./norm_stats/` 下已有匹配的统计文件。
 
 ```bash
 script/dm05_launcher.sh \
   --task inference \
   --nproc_per_node 1 \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10 \
+  --model-config.chunk-size 50 \
   --inference-config.port 7891
 ```
 
@@ -110,13 +109,21 @@ script/dm05_launcher.sh \
 - `--model-config.chunk-size`：动作块（action chunk）长度。
 - `--inference-config.port`：推理服务端口。
 
-推理时，服务会自动读取 checkpoint 目录下的 `norm_stats.json`。
+推理时，服务会优先读取 checkpoint 目录下的 `norm_stats.json`。如果不存在，则回退到 `./norm_stats/` 下与当前数据集、action mode 和 chunk size 匹配的统计文件；该文件通常在训练阶段自动生成。
 
 服务启动后，可以使用测试脚本发送一次请求，确认接口能够正常返回结果：
 
 ```bash
 bash tests/curl_demo.sh http://SERVER_IP:7891/process_frame
 ```
+
+`/process_frame` 接收 `multipart/form-data` 请求：
+
+- `text`：任务指令。
+- `states`：当前机器人状态的 JSON array，维度和顺序需要与模型训练和归一化统计保持一致。
+- `image`：图像文件，每个配置的图像键对应一个 `image` 字段，顺序需要与 `--inference-config.image-keys` 一致。
+- `robot_type`：可选的内置机器人类型，目前仅支持 `DOS W1`。当 relative action 需要转换回 absolute action 时，它用于提供机器人 state 描述。
+- `control_mode` 和 `speed`：直接服务 pretrained `Dexmal/DM05` 模型时需要传入的文本条件字段。SFT checkpoint 通常不需要这两个字段，除非你的 SFT 数据训练时也使用了相同字段。
 
 测试脚本正确返回形如以下的结果。
 
@@ -183,7 +190,7 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name my_robot \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10
+  --model-config.chunk-size 50
 ```
 
 参数说明：
@@ -192,21 +199,25 @@ script/dm05_launcher.sh \
 - `--nproc_per_node 8`：单机启动的训练进程数，通常对应使用的 GPU 数量。
 - `--data-config.dataset-name my_robot`：指定训练数据集名称，需要与项目中的数据配置保持一致。
 - `--model-config.model-name-or-path ./checkpoints/DM05`：指定初始模型 checkpoint 路径。
-- `--model-config.chunk-size 10`：指定模型一次预测的动作块（action chunk）长度。
+- `--model-config.chunk-size 50`：指定模型一次预测的动作块（action chunk）长度。
 
 训练开始后，日志会输出数据加载、模型初始化、loss、checkpoint 保存等信息。实际训练前请确认数据路径、模型权重路径和 GPU 数量均已正确配置。
 
+## DM05 SFT 与自定义数据微调
+
+建议先使用内置 demo 数据和 `playground/dm05_sft_demo.py` 跑通一次完整的 DM05 SFT 流程，熟悉数据格式、归一化统计、训练、推理和服务验证后，再替换为自己的机器人数据进行 SFT。参考 [DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)。
+
 ## 参考 LIBERO 微调流程
 
-如需端到端微调 DM05，可以参考 [LIBERO 训练与评测指南](docs/zh/libero.md)。该流程覆盖数据与模型准备、SFT 训练、推理服务启动和 benchmark 评测，可作为将 DM05 适配到自有机器人数据集时的参考。
+如需端到端微调 DM05，可以参考 [DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)。该流程覆盖数据与模型准备、SFT 训练、推理服务启动和 benchmark 评测，可作为将 DM05 适配到自有机器人数据集时的参考。
 
 ## 使用指南
 
 - 下载模型：参考[模型](#模型)或访问 [Dexmal Hugging Face](https://huggingface.co/Dexmal)
 - 准备数据：参考[数据使用指南](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md)
 - 启动推理服务：参考[推理](#推理)
-- 微调自有数据：参考[训练](#训练)
-- LIBERO 训练和评测：参考[LIBERO 训练与评测指南](docs/zh/libero.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)
+- 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
+- LIBERO 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)
 
 ## 社区与支持
 

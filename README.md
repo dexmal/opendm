@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://www.dexmal.com/blog/dm0.5/index_en.html"><img src="https://img.shields.io/badge/📖-Tech_Blog-blue" alt="Tech Blog"></a>
-  <a href="https://huggingface.co/Dexmal/models"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
+  <a href="https://huggingface.co/collections/Dexmal/dm05"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
   <a href="https://maas.dexmal.com/"><img src="https://img.shields.io/badge/MaaS-Online-brightgreen.svg" alt="MaaS"></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -78,27 +78,26 @@ conda create -n opendm python=3.10 -y
 conda activate opendm
 
 pip install torch torchvision \
-  --index-url https://download.pytorch.org/whl/cu128 \
-  --extra-index-url https://mirrors.ivolces.com/pypi/simple/
+  --index-url https://download.pytorch.org/whl/cu128
 
 pip install ninja packaging
 MAX_JOBS=2 pip install flash-attn --no-build-isolation
 
-# Run from the OpenDM repository root.
+# Enter the OpenDM repository root.
 cd opendm
 pip install -e .
 ```
 
 ## Inference
 
-After installing the environment and initializing the source code, you can start the model inference service. The service loads the specified checkpoint and exposes an HTTP endpoint for benchmark clients or other applications to request action predictions.
+After installing the environment and initializing the source code, you can start the model inference service. The service loads the specified checkpoint and exposes an HTTP endpoint for benchmark clients or other applications to request action predictions. Use a checkpoint that contains `norm_stats.json`, or make sure the matching stats already exist under `./norm_stats/`.
 
 ```bash
 script/dm05_launcher.sh \
   --task inference \
   --nproc_per_node 1 \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10 \
+  --model-config.chunk-size 50 \
   --inference-config.port 7891
 ```
 
@@ -110,13 +109,21 @@ Arguments:
 - `--model-config.chunk-size`: action chunk length.
 - `--inference-config.port`: inference service port.
 
-During inference, the service looks for `norm_stats.json` in the checkpoint directory.
+During inference, the service first looks for `norm_stats.json` in the checkpoint directory. If it is not found, it falls back to the matching file under `./norm_stats/`, which is normally generated during training for the same dataset, action mode, and chunk size.
 
 After the service starts, send a test request to verify that the endpoint returns a valid response:
 
 ```bash
 bash tests/curl_demo.sh http://SERVER_IP:7891/process_frame
 ```
+
+`/process_frame` accepts a `multipart/form-data` request:
+
+- `text`: task instruction.
+- `states`: JSON array of the current robot state. The dimension and order must match the model's training and normalization statistics.
+- `image`: image files, one field per configured image key. The order must match `--inference-config.image-keys`.
+- `robot_type`: optional built-in robot type. Currently only `DOS W1` is supported. It provides the robot state description when relative actions need to be converted back to absolute actions.
+- `control_mode` and `speed`: text conditioning fields required when directly serving the pretrained `Dexmal/DM05` model. They are normally not required for SFT checkpoints unless your SFT data was trained with the same fields.
 
 A successful response has the following shape.
 
@@ -183,7 +190,7 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name my_robot \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10
+  --model-config.chunk-size 50
 ```
 
 Arguments:
@@ -192,21 +199,25 @@ Arguments:
 - `--nproc_per_node 8`: number of training processes on a single node, usually matching the number of GPUs.
 - `--data-config.dataset-name my_robot`: dataset name for training. It must match the project dataset configuration.
 - `--model-config.model-name-or-path ./checkpoints/DM05`: initial model checkpoint path.
-- `--model-config.chunk-size 10`: action chunk length predicted by the model.
+- `--model-config.chunk-size 50`: action chunk length predicted by the model.
 
 Training logs will include data loading, model initialization, loss values, and checkpoint saving. Before running a full training job, verify that the data path, model checkpoint path, and GPU count are correctly configured.
 
+## DM05 SFT with Demo and Custom Data
+
+Start by running a complete DM05 SFT workflow with the built-in demo data and `playground/dm05_sft_demo.py`. After you are familiar with the data format, normalization statistics, training, inference, and service validation flow, replace the demo dataset with your own robot data for SFT. See [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
+
 ## LIBERO Fine-Tuning Reference
 
-Use the [LIBERO Training and Evaluation Guide](docs/en/libero.md) as an end-to-end reference for fine-tuning DM05. It covers data and model preparation, SFT training, inference service startup, and benchmark evaluation, and can help you adapt DM05 to your own robot datasets.
+Use the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) as an end-to-end reference for fine-tuning DM05. It covers data and model preparation, SFT training, inference service startup, and benchmark evaluation, and can help you adapt DM05 to your own robot datasets.
 
 ## Guides
 
 - Download models: see [Models](#models) or visit [Dexmal Hugging Face](https://huggingface.co/Dexmal).
 - Prepare data: see the [Data Guide](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md).
 - Start inference service: see [Inference](#inference).
-- Fine-tune on custom data: see [Training](#training).
-- LIBERO training and evaluation: see the [LIBERO Training and Evaluation Guide](docs/en/libero.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md).
+- DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
+- LIBERO training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md).
 
 ## Community and Support
 

@@ -704,8 +704,28 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             self.model.vlm.model.language_model.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
             )
+            vision_tower = getattr(self.model.vlm.model, "vision_tower", None)
+            if vision_tower is not None and hasattr(
+                vision_tower, "gradient_checkpointing_enable"
+            ):
+                vision_tower.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False}
+                )
+            elif vision_tower is not None and hasattr(
+                vision_tower, "gradient_checkpointing"
+            ):
+                vision_tower.gradient_checkpointing = True
         else:
             self.model.vlm.model.language_model.gradient_checkpointing_disable()
+            vision_tower = getattr(self.model.vlm.model, "vision_tower", None)
+            if vision_tower is not None and hasattr(
+                vision_tower, "gradient_checkpointing_disable"
+            ):
+                vision_tower.gradient_checkpointing_disable()
+            elif vision_tower is not None and hasattr(
+                vision_tower, "gradient_checkpointing"
+            ):
+                vision_tower.gradient_checkpointing = False
 
         if ae_gradient_checkpointing:
             self.model.action_expert.gradient_checkpointing_enable(

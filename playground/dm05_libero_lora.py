@@ -22,6 +22,9 @@ from opendm.exp.dm05_exp import (
     DM05Exp as _DM05Exp,
 )
 from opendm.exp.dm05_exp import (
+    DM05InferenceConfig as _DM05InferenceConfig,
+)
+from opendm.exp.dm05_exp import (
     DM05ModelConfig as _DM05ModelConfig,
 )
 from opendm.exp.dm05_exp import (
@@ -46,27 +49,29 @@ class DM05DataConfig(_DM05DataConfig):
     ) -> tuple:
         dataset_info = self._dataset_info()
         image_keys = dataset_info["image_keys"]
-        pipeline = Pipeline([
-            self._action_transform(action_horizon),
-            LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
-            PixelTransform(
-                transform_pipeline=NoAugmentationPipeline(),
-                image_keys=image_keys,
-            ),
-            Normalize(
-                norm_stats_path=str(self.norm_stats_path(action_horizon)),
-                norm_keys=["state", "action"],
-                use_quantiles=True,
-            ),
-            ChatTokenization(
-                processor=processor,
-                n_bins=self.n_bins,
-                max_length=tokenizer_max_length,
-                image_keys=image_keys,
-                add_state=self.add_state,
-            ),
-            PadAction(32),
-        ])
+        pipeline = Pipeline(
+            [
+                self._action_transform(action_horizon),
+                LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
+                PixelTransform(
+                    transform_pipeline=NoAugmentationPipeline(),
+                    image_keys=image_keys,
+                ),
+                Normalize(
+                    norm_stats_path=str(self.norm_stats_path(action_horizon)),
+                    norm_keys=["state", "action"],
+                    use_quantiles=True,
+                ),
+                ChatTokenization(
+                    processor=processor,
+                    n_bins=self.n_bins,
+                    max_length=tokenizer_max_length,
+                    image_keys=image_keys,
+                    add_state=self.add_state,
+                ),
+                PadAction(32),
+            ]
+        )
         dataset = JsonlDataset(
             jsonl_dir=dataset_info["jsonl_dir"],
             transforms=pipeline,
@@ -95,8 +100,8 @@ class DM05ModelConfig(_DM05ModelConfig):
     action_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = (
         field(default="sdpa")
     )
-    vlm_gradient_checkpointing: bool = field(default=False)
-    ae_gradient_checkpointing: bool = field(default=False)
+    vlm_gradient_checkpointing: bool = field(default=True)
+    ae_gradient_checkpointing: bool = field(default=True)
 
 
 @dataclass
@@ -116,12 +121,19 @@ class DM05TrainerConfig(_DM05TrainerConfig):
 
 
 @dataclass
+class DM05InferenceConfig(_DM05InferenceConfig):
+    output_action_dim: int = field(default=7)
+    image_keys: list[str] = field(default_factory=lambda: ["images_1", "images_2"])
+
+
+@dataclass
 class DM05Exp(_DM05Exp):
     use_lora: bool | None = field(default=True)
     model_config: DM05ModelConfig = field(default_factory=DM05ModelConfig)
     optimizer_config: DM05OptimizerConfig = field(default_factory=DM05OptimizerConfig)
     trainer_config: DM05TrainerConfig = field(default_factory=DM05TrainerConfig)
     data_config: DM05DataConfig = field(default_factory=DM05DataConfig)
+    inference_config: DM05InferenceConfig = field(default_factory=DM05InferenceConfig)
 
 
 if __name__ == "__main__":

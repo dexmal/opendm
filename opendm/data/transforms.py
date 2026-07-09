@@ -211,6 +211,9 @@ class BuildActionChunk:
         return f"BuildActionChunk(action_horizon={self.action_horizon})"
 
     def __call__(self, data, **kw):
+        assert "state" in data, "BuildActionChunk requires 'state' in data"
+        data["state"] = np.asarray(data["state"], dtype=np.float32)
+
         assert "raw_lines" in data and "meta_data" in data, \
             "BuildActionChunk requires 'raw_lines' and 'meta_data' in data"
         lines = data["raw_lines"]

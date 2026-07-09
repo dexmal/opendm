@@ -1,4 +1,4 @@
-# LIBERO 训练与评测指南
+# DM05 LIBERO 训练与评测指南
 
 本文档介绍如何使用 `DM05` 完成 LIBERO 场景下的模型训练、推理服务启动以及 benchmark 评测流程。
 

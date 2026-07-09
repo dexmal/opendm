@@ -2,7 +2,8 @@
 # Local / generic launcher for DM05 SFT (train & inference).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXP="$(cd "$SCRIPT_DIR/.." && pwd)/playground/dm05_libero.py"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+EXP="$REPO_ROOT/opendm/exp/dm05_exp.py"
 NPROC_PER_NODE=8
 NNODES=1
 NODE_RANK=0
@@ -50,6 +51,9 @@ done
 
 echo "Running: $EXP"
 echo "Args: ${EXP_ARGS[*]}"
+
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+echo "PYTHONPATH: $PYTHONPATH"
 
 if [[ " ${EXP_ARGS[*]} " == *" --task inference "* ]]; then
     python "$EXP" "${EXP_ARGS[@]}"
