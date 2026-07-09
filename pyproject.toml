@@ -1,0 +1,133 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "OpenDM"
+version = "0.1.0"
+description = "DM05: a vision-language-action model for scalable robotic controls."
+authors = [
+    { name = "DM Team" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    # Core PyTorch (must be first)
+    "torch",
+    "torchvision",
+
+    # Core ML/AI dependencies
+    "transformers==5.3.0",
+    "accelerate",
+    "peft",
+    "bitsandbytes",
+    "einops",
+    "einops-exts",
+    "tokenizers",
+    "sentencepiece",
+    "tiktoken",
+    "timm",
+    "liger-kernel",
+
+    # Data processing and datasets
+    "datasets",
+    "numpy==1.26.4",
+    "scikit-learn",
+    "decord",
+    "av",
+    "albumentations",
+    "diffusers",
+    "botocore==1.35.66",
+    "boto3==1.35.18",
+    "megfile",
+    "easydict",
+
+    # Web framework and API
+    "fastapi",
+    "uvicorn",
+    "flask",
+    "httpx",
+    "requests",
+    "pydantic",
+
+    # UI and visualization
+    "gradio",
+    "gradio_client",
+    "markdown2",
+    "tabulate",
+    "tqdm",
+    "wandb",
+
+    # Utilities
+    "pyramid==1.5",
+    "numpydantic==1.1.0",
+    "protobuf",
+    "pypandoc",
+    "shortuuid",
+    "openpyxl",
+    "debugpy",
+    "loguru",
+    "tyro==1.0.13",
+
+    # Code formatting and linting
+    "autopep8>=2.0.0",
+    "pycodestyle>=2.10.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+
+    # Type checking
+    "mypy>=1.0.0",
+    "types-requests>=2.28.0",
+
+    # Testing
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+
+    # Pre-commit hooks
+    "pre-commit>=3.0.0"
+]
+
+[project.optional-dependencies]
+attention = [
+    "flash_attn",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["opendm*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = [
+    "checkpoints",
+    "user_checkpoints",
+    "wandb",
+    "assets",
+    "data",
+    "norm",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "UP",
+    "B",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

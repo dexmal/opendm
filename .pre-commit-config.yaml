@@ -1,0 +1,31 @@
+exclude: >
+  (?x)^(
+    checkpoints/|
+    user_checkpoints/|
+    wandb/|
+    assets/|
+    data/|
+    norm/|
+    .*\.egg-info/
+  )
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict
+      - id: debug-statements
