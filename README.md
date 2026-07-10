@@ -60,13 +60,16 @@ RTX 4090, A100, H100, H20
 
 ```bash
 git clone https://github.com/dexmal/opendm.git
+cd opendm
 
-docker run -it --rm --gpus all --ipc=host --shm-size=16g --network host \
+docker run -it --rm --gpus all --network host \
   --name opendm \
-  -v $(pwd)/opendm:/app/opendm \
-  opendm:latest /bin/bash
+  --shm-size=16g \
+  -v "$PWD":/app/opendm \
+  -w /app/opendm \
+  dexmal/opendm:latest /bin/bash
 
-# Run from the OpenDM repository root.
+# Run from the OpenDM repository root inside the container.
 conda activate opendm
 pip install -e .
 ```
