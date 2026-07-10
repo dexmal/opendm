@@ -79,8 +79,13 @@ def _load_jsonl(file_path: str) -> list:
 
 
 def build_index_cache(jsonl_dir: str) -> dict:
-    logger.info(f"Building index cache for {jsonl_dir} ...")
-    jsonl_files = megfile.smart_glob(os.path.join(jsonl_dir, "**", "*.jsonl"))
+    jsonl_files = []
+    if megfile.smart_isdir(jsonl_dir):
+        logger.info(f"Building index cache for {jsonl_dir} ...")
+        jsonl_files = megfile.smart_glob(os.path.join(jsonl_dir, "**", "*.jsonl"))
+    if not jsonl_files:
+        raise FileNotFoundError(f"Dataset not found or empty: {jsonl_dir}")
+
     data = {}
     total_samples = 0
     for jsonl_file in tqdm(jsonl_files, desc="Building index cache"):
