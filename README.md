@@ -21,7 +21,9 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## News
 
+- [2026-07-17] DM0.5 has open-sourced the RoboTwin2.0 generalist model checkpoint, along with the supervised fine-tuning (SFT) code built upon the DM0.5 pretrained model. See the [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md).
 - [2026-07-09] DM0.5 is officially released. Read the [technical blog](https://www.dexmal.com/blog/dm0.5/index_en.html) for more details.
+
 
 ## Models
 
@@ -29,12 +31,29 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 | --- | --- | --- |
 | DM05 | Base DM0.5 model for fine-tuning | [🤗 Dexmal/DM05](https://huggingface.co/Dexmal/DM05) |
 | DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Dexmal/DM05-libero](https://huggingface.co/Dexmal/DM05-libero) |
+| DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Dexmal/DM05-robotwin2](https://huggingface.co/Dexmal/DM05-robotwin2) |
 
 Example checkpoint download:
 
 ```bash
 huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
 ```
+
+## Benchmark Results
+
+### LIBERO Results
+
+| Method | Spatial | Object | Goal | Long | Average | Reference |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| DM0.5 | 99.0 | 99.8 | 99.6 | 97.4 | 99.0 | [Training & Evaluation](docs/en/dm05_libero.md) |
+
+
+### RoboTwin 2.0 Results
+
+| Method | Clean | Randomized | Average | Reference |
+| --- | ---: | ---: | ---: | --- |
+| DM0.5 | 93.6 | 93.3 | 93.5 | [Training & Evaluation](docs/en/dm05_robotwin2.md) |
+
 
 ## Quick Start
 
@@ -210,9 +229,12 @@ Training logs will include data loading, model initialization, loss values, and 
 
 Start by running a complete DM05 SFT workflow with the built-in demo data and `playground/dm05_sft_demo.py`. After you are familiar with the data format, normalization statistics, training, inference, and service validation flow, replace the demo dataset with your own robot data for SFT. See [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
 
-## LIBERO Fine-Tuning Reference
+## Benchmark Fine-Tuning Reference
 
-Use the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) as an end-to-end reference for fine-tuning DM05. It covers data and model preparation, SFT training, inference service startup, and benchmark evaluation, and can help you adapt DM05 to your own robot datasets.
+Use the benchmark fine-tuning guides as end-to-end references for fine-tuning DM05. They cover data and model preparation, SFT training, inference service startup, and benchmark evaluation.
+
+- LIBERO: [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md)
+- RoboTwin2.0: [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md)
 
 ## Guides
 
@@ -220,7 +242,7 @@ Use the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) as a
 - Prepare data: see the [Data Guide](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md).
 - Start inference service: see [Inference](#inference).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
-- LIBERO training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md).
+- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) and [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md); for LIBERO LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md).
 
 ## Community and Support
 

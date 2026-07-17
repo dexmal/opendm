@@ -3,16 +3,16 @@
 import io
 import json
 import os
-from typing import List, Optional
+import re
 
-from decord import data
 import megfile
 import numpy as np
 import orjson
 import torch
-from opendm.constants.robot import ActionMode, RobotStateDesc
-from opendm.data.augmentations import PadToSquare
+from loguru import logger
 from PIL import Image
+
+from opendm.constants.robot import ActionMode, RobotStateDesc
 from opendm.data.augmentations import TransformPipeline
 
 
@@ -214,13 +214,15 @@ class BuildActionChunk:
         assert "state" in data, "BuildActionChunk requires 'state' in data"
         data["state"] = np.asarray(data["state"], dtype=np.float32)
 
-        assert "raw_lines" in data and "meta_data" in data, \
+        assert "raw_lines" in data and "meta_data" in data, (
             "BuildActionChunk requires 'raw_lines' and 'meta_data' in data"
+        )
         lines = data["raw_lines"]
         meta = data["meta_data"]
 
-        assert "frame_index" in meta, \
+        assert "frame_index" in meta, (
             "BuildActionChunk requires meta_data['frame_index']"
+        )
         frame_index = meta["frame_index"]
         episode_term = len(lines) - 1
 
@@ -239,12 +241,16 @@ class BuildActionChunk:
             if raw_idx <= episode_term:
                 frame = orjson.loads(lines[raw_idx])
                 last_value = np.asarray(frame[read_key], dtype=np.float32)
-            assert last_value is not None, "No valid action or state values found in episode"
+            assert last_value is not None, (
+                "No valid action or state values found in episode"
+            )
             values.append(last_value)
-        assert len(values) == self.action_horizon, \
+        assert len(values) == self.action_horizon, (
             f"Expected {self.action_horizon} values, got {len(values)}"
+        )
 
         data["action"] = np.stack(values, axis=0)[None, ...]
+        data["action_mask"] = np.ones_like(data["action"], dtype=bool)
         return data
 
 
@@ -279,9 +285,9 @@ class ActionRelative:
         return f"ActionRelative(non_delta_ids={non_delta_ids})"
 
     def __call__(self, data, **kw):
-        assert (
-            "state" in data and "action" in data
-        ), "Both state and action must be present to compute relative action"
+        assert "state" in data and "action" in data, (
+            "Both state and action must be present to compute relative action"
+        )
         state = data["state"]
         action = data["action"]
         assert isinstance(state, np.ndarray) and isinstance(
@@ -296,15 +302,16 @@ class ActionRelative:
             )
         relative = action - state
 
-        assert (
-            "meta_data" in data
-        ), "meta_data must be present to compute relative action"
-        assert (
-            "state_desc" in data["meta_data"]
-        ), "state_desc must be present in meta_data to compute relative action"
+        assert "meta_data" in data, (
+            "meta_data must be present to compute relative action"
+        )
+        assert "state_desc" in data["meta_data"], (
+            "state_desc must be present in meta_data to compute relative action"
+        )
         state_desc = data["meta_data"]["state_desc"]
         non_delta_indices = [
-            i for i, sid in enumerate(state_desc)
+            i
+            for i, sid in enumerate(state_desc)
             if _state_desc_value(sid) in self.non_delta_ids
         ]
         if non_delta_indices:
@@ -407,30 +414,29 @@ class ActionAbsolute:
         self.non_delta_ids = {_state_desc_value(desc) for desc in non_delta_ids}
 
     def __call__(self, data):
-        assert (
-            "state" in data and "action" in data
-        ), "Both state and action must be present to compute absolute action"
+        assert "state" in data and "action" in data, (
+            "Both state and action must be present to compute absolute action"
+        )
         assert isinstance(data["state"], np.ndarray) and isinstance(
             data["action"],
             np.ndarray,
         ), "Both state and action must be numpy arrays"
         abs_action = data["state"] + data["action"]
 
-        assert (
-            "meta_data" in data
-        ), "meta_data must be present to compute absolute action"
-        assert (
-            "state_desc" in data["meta_data"]
-        ), "state_desc must be present in meta_data to compute absolute action"
+        assert "meta_data" in data, (
+            "meta_data must be present to compute absolute action"
+        )
+        assert "state_desc" in data["meta_data"], (
+            "state_desc must be present in meta_data to compute absolute action"
+        )
         state_desc = data["meta_data"]["state_desc"]
         non_delta_indices = [
-            i for i, sid in enumerate(state_desc)
+            i
+            for i, sid in enumerate(state_desc)
             if _state_desc_value(sid) in self.non_delta_ids
         ]
         if non_delta_indices:
-            abs_action[..., non_delta_indices] = data["action"][
-                ..., non_delta_indices
-            ]
+            abs_action[..., non_delta_indices] = data["action"][..., non_delta_indices]
 
         data["action"] = abs_action
         return data
@@ -456,9 +462,10 @@ class ChatTokenization:
         self,
         processor,
         n_bins: int = 256,
-        max_length: Optional[int] = 1024,
+        max_length: int | None = 1024,
         image_keys: list[str] | None = None,
         add_state: bool = True,
+        enable_logging: bool = False,
     ):
         self.processor = processor
         self.tokenizer = (
@@ -468,8 +475,9 @@ class ChatTokenization:
         self.max_length = max_length
         self.image_keys = image_keys
         self.add_state = add_state
+        self.enable_logging = enable_logging
 
-    def action_to_bin_tokens(self, action: np.ndarray, n_bins: int = 256) -> List[int]:
+    def action_to_bin_tokens(self, action: np.ndarray, n_bins: int = 256) -> list[int]:
         """Convert normalized continuous action values to integer bin IDs.
 
         Args:
@@ -498,9 +506,12 @@ class ChatTokenization:
             text_parts.append(f"Robot: {meta['robot_type']}\n")
         if meta.get("control_mode") is not None:
             text_parts.append(f"Control mode: {meta['control_mode']}\n")
-        if meta.get("speed") is not None:
-            text_parts.append(f"Overall speed: {meta['speed']}\n")
-        text_parts.append(f"Task: {data['prompt']}\n")
+        speed = meta.get("speed", "0.5")
+        assert isinstance(speed, str), (
+            f"Expected speed to be a string, got {type(speed)}"
+        )
+        text_parts.append(f"Overall speed: {speed}\n")
+        text_parts.append(f"Task: {data['prompt']}.\n")
         user_content = [{"type": "text", "text": "".join(text_parts)}]
         for key in self.image_keys:
             image_label = image_labels.get(key, f"{key}: ")
@@ -513,7 +524,8 @@ class ChatTokenization:
             user_content.append(
                 {
                     "type": "text",
-                    "text": "State: " + " ".join(
+                    "text": "States: "
+                    + " ".join(
                         str(b)
                         for b in self.action_to_bin_tokens(
                             data["state"],
@@ -526,9 +538,22 @@ class ChatTokenization:
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
+            add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
         )
+        if self.enable_logging:
+            decode_text = self.tokenizer.decode(
+                inputs["input_ids"][0], skip_special_tokens=False
+            )
+            decode_text_collapsed = re.sub(
+                r"(<image_soft_token>)+",
+                lambda m: (
+                    f"<image_soft_token>x{m.group(0).count('<image_soft_token>')}"
+                ),
+                decode_text,
+            )
+            logger.info(f"Decoded input_ids: {decode_text_collapsed}")
         if inputs["input_ids"].shape[1] > self.max_length:
             prompt_for_truncation = data["prompt"]
             prompt_token_ids = self.tokenizer.encode(
@@ -562,6 +587,9 @@ class ChatTokenization:
                 )
         return {
             "action": torch.from_numpy(data["action"]) if "action" in data else None,
+            "action_mask": (
+                torch.from_numpy(data["action_mask"]) if "action_mask" in data else None
+            ),
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"],
             "pixel_values": inputs["pixel_values"],
@@ -581,6 +609,7 @@ class PadAction:
 
     def __call__(self, data, **kw):
         data["action"] = self._pad_last_dim(data["action"])
+        data["action_mask"] = self._pad_last_dim(data["action_mask"])
         return data
 
     def _pad_last_dim(self, arr, pad_value=0):
@@ -632,9 +661,9 @@ def _load_video(video_url: str, frame_idx: int) -> Image.Image:
                     continue
                 current_idx = int(frame.pts * time_base * fps + 0.5)
                 if current_idx == frame_idx:
-                    return Image.fromarray(
-                        frame.to_ndarray(format="rgb24")
-                    ).convert("RGB")
+                    return Image.fromarray(frame.to_ndarray(format="rgb24")).convert(
+                        "RGB"
+                    )
                 if current_idx > frame_idx:
                     break
     raise RuntimeError(f"Failed to seek/decode frame_idx={frame_idx}")

@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 
 import tyro
@@ -31,6 +32,9 @@ class DM05OptimizerConfig(_DM05OptimizerConfig):
 
 @dataclass
 class DM05TrainerConfig(_DM05TrainerConfig):
+    output_dir: str = field(
+        default=f"user_checkpoints/{os.path.basename(__file__)[:-3]}"
+    )
     per_device_train_batch_size: int = field(default=8)
     gradient_accumulation_steps: int = field(default=1)
     save_steps: int = field(default=10000)

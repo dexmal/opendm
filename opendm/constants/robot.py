@@ -23,4 +23,8 @@ ROBOT_STATE_DESCS = {
     + [RobotStateDesc.GRIPPER]
     + [RobotStateDesc.JOINT] * 6
     + [RobotStateDesc.GRIPPER],
+    RobotType.ALOHA_ROBOTWIN2: [RobotStateDesc.JOINT] * 6
+    + [RobotStateDesc.GRIPPER]
+    + [RobotStateDesc.JOINT] * 6
+    + [RobotStateDesc.GRIPPER],
 }

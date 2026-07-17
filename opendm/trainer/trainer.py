@@ -48,6 +48,11 @@ class DMTrainer(Trainer):
         opt_model: torch.nn.Module = model if model is not None else self.model
 
         if self.optimizer is None:
+            if self.exp_config.optimizer_config.optim == "muon_adamw":
+                self.optimizer = self.exp_config.optimizer_config.build_muon_adamw(
+                    opt_model
+                )
+                return self.optimizer
             optimizer_grouped_parameters = (
                 self.exp_config.optimizer_config._get_optimizer_grouped_parameters(
                     opt_model

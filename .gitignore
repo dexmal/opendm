@@ -164,6 +164,7 @@ cython_debug/
 .vscode/
 wandb/
 checkpoints/
+checkpoints
 logs/
 /data/
 debug_data/

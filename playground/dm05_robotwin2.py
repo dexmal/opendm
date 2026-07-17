@@ -8,7 +8,7 @@ import tyro
 from flask import request
 from PIL import Image
 
-from opendm.constants.robot import ActionMode, RobotType
+from opendm.constants.robot import ROBOT_STATE_DESCS, ActionMode, RobotType
 from opendm.data.augmentations import NoAugmentationPipeline
 from opendm.data.collator import TrainingCollator
 from opendm.data.dataset import JsonlDataset
@@ -20,7 +20,6 @@ from opendm.data.transforms import (
     Pipeline,
     PixelTransform,
 )
-from opendm.dataset.libero import LIBERO_8D_STATE_DESC
 from opendm.exp.dm05_exp import (
     DM05DataConfig as _DM05DataConfig,
 )
@@ -29,9 +28,6 @@ from opendm.exp.dm05_exp import (
 )
 from opendm.exp.dm05_exp import (
     DM05InferenceConfig as _DM05InferenceConfig,
-)
-from opendm.exp.dm05_exp import (
-    DM05ModelConfig as _DM05ModelConfig,
 )
 from opendm.exp.dm05_exp import (
     DM05OptimizerConfig as _DM05OptimizerConfig,
@@ -43,15 +39,14 @@ from opendm.exp.dm05_exp import (
 
 @dataclass
 class DM05DataConfig(_DM05DataConfig):
-    dataset_name: str = field(default="libero_pi0_all")
+    dataset_name: str = field(default="robotwin2_generalist")
     action_mode: ActionMode = field(default=ActionMode.ABSOLUTE)
-    add_state: bool = field(default=False)
 
     def build_dataset(
         self,
         processor,
         action_horizon: int,
-        tokenizer_max_length: int = 768,
+        tokenizer_max_length: int = 1024,
     ) -> tuple:
         dataset_info = self._dataset_info()
         image_keys = dataset_info["image_keys"]
@@ -94,27 +89,9 @@ class DM05DataConfig(_DM05DataConfig):
 
 
 @dataclass
-class DM05ModelConfig(_DM05ModelConfig):
-    model_name_or_path: str | None = field(default=("./checkpoints/DM05"))
-    chunk_size: int = field(default=10)
-    llm_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = field(
-        default="flex_attention"
-    )
-    vision_attn_implementation: Literal[
-        "auto", "eager", "sdpa", "flash_attention_2"
-    ] = field(default="flash_attention_2")
-    action_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = (
-        field(default="sdpa")
-    )
-    vlm_gradient_checkpointing: bool = field(default=True)
-    ae_gradient_checkpointing: bool = field(default=True)
-
-
-@dataclass
 class DM05OptimizerConfig(_DM05OptimizerConfig):
+    base_lr: float = field(default=4e-5)
     optim: Literal["adamw", "muon_adamw"] = field(default="muon_adamw")
-    base_lr: float = field(default=2e-5)
-    warmup_steps: int = field(default=1000)
 
 
 @dataclass
@@ -122,8 +99,7 @@ class DM05TrainerConfig(_DM05TrainerConfig):
     output_dir: str = field(
         default=f"user_checkpoints/{os.path.basename(__file__)[:-3]}"
     )
-    fsdp1: bool | None = field(default=True)
-    per_device_train_batch_size: int = field(default=4)
+    per_device_train_batch_size: int = field(default=32)
     gradient_accumulation_steps: int = field(default=1)
     save_steps: int = field(default=10000)
     num_train_steps: int = field(default=100000)
@@ -132,21 +108,23 @@ class DM05TrainerConfig(_DM05TrainerConfig):
 
 @dataclass
 class DM05InferenceConfig(_DM05InferenceConfig):
-    output_action_dim: int = field(default=7)
-    image_keys: list[str] = field(default_factory=lambda: ["images_1", "images_2"])
+    output_action_dim: int = field(default=14)
+    image_keys: list[str] = field(
+        default_factory=lambda: ["images_1", "images_2", "images_3"]
+    )
 
     def _prepare_input(self) -> dict:
         images = request.files.getlist("image", None)
         states = request.form.get("states", None)
         text = request.form.get("text", "")
-        robot_type = request.form.get("robot_type", "Franka")
+        robot_type = request.form.get("robot_type", "Aloha RoboTwin2")
         speed = request.form.get("speed", "0.5")
         control_mode = request.form.get("control_mode")
 
-        assert robot_type == RobotType.FRANKA.value, (
-            f"Unsupported robot_type {robot_type!r}. Only {RobotType.FRANKA.value} is supported."
+        assert robot_type == RobotType.ALOHA_ROBOTWIN2.value, (
+            f"Unsupported robot_type {robot_type!r}. Only {RobotType.ALOHA_ROBOTWIN2.value} is supported."
         )
-        state_desc = LIBERO_8D_STATE_DESC
+        state_desc = ROBOT_STATE_DESCS[RobotType.ALOHA_ROBOTWIN2]
 
         pil_images = {
             self.image_keys[i]: Image.open(img).convert("RGB")
@@ -170,7 +148,6 @@ class DM05InferenceConfig(_DM05InferenceConfig):
 @dataclass
 class DM05Exp(_DM05Exp):
     use_lora: bool | None = field(default=False)
-    model_config: DM05ModelConfig = field(default_factory=DM05ModelConfig)
     optimizer_config: DM05OptimizerConfig = field(default_factory=DM05OptimizerConfig)
     trainer_config: DM05TrainerConfig = field(default_factory=DM05TrainerConfig)
     data_config: DM05DataConfig = field(default_factory=DM05DataConfig)

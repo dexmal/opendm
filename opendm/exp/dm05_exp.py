@@ -5,7 +5,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 import numpy as np
@@ -44,6 +44,7 @@ from opendm.model.dm05.dm05_lora import (
     load_dm05_model_for_inference,
     unwrap_dm05_model,
 )
+from opendm.optimizer import MuonAdamW, mark_muon_parameters
 from opendm.trainer.trainer import DMTrainer, safe_save_model_for_hf_trainer
 
 
@@ -150,11 +151,36 @@ class DM05ModelConfig(Config):
 
 @dataclass
 class DM05OptimizerConfig(Config):
+    optim: Literal["adamw", "muon_adamw"] = field(default="adamw")
     base_lr: float = field(default=2.5e-5)
     weight_decay: float = field(default=1e-10)
     warmup_steps: int = field(default=1000)
     adam_beta1: float = field(default=0.9)
     adam_beta2: float = field(default=0.95)
+    adam_epsilon: float = field(default=1e-8)
+    muon_momentum: float = field(default=0.95)
+    muon_nesterov: bool = field(default=True)
+    muon_ns_steps: int = field(default=5)
+    muon_lr_scale: float = field(default=1.0)
+    muon_moonlight_coefficient: float = field(default=0.2)
+
+    def prepare_model(self, model: torch.nn.Module) -> None:
+        if self.optim == "muon_adamw":
+            mark_muon_parameters(model)
+
+    def build_muon_adamw(self, model: torch.nn.Module) -> MuonAdamW:
+        return MuonAdamW(
+            model,
+            lr=self.base_lr,
+            betas=(self.adam_beta1, self.adam_beta2),
+            eps=self.adam_epsilon,
+            weight_decay=self.weight_decay,
+            muon_momentum=self.muon_momentum,
+            muon_nesterov=self.muon_nesterov,
+            muon_ns_steps=self.muon_ns_steps,
+            muon_lr_scale=self.muon_lr_scale,
+            muon_moonlight_coefficient=self.muon_moonlight_coefficient,
+        )
 
     def _get_optimizer_grouped_parameters(self, model: torch.nn.Module) -> list:
         parameters = [
@@ -170,7 +196,7 @@ class DM05OptimizerConfig(Config):
 class DM05TrainerConfig(Config):
     fsdp1: bool | None = field(default=True)
     output_dir: str = field(
-        default=f"user_checkpoints/{os.path.basename(__file__)}-{datetime.now().strftime('%Y%m%d')}"
+        default=f"user_checkpoints/{os.path.basename(__file__)[:-3]}"
     )
     num_train_steps: int = field(default=100000)
     per_device_train_batch_size: int = field(default=4)
@@ -208,7 +234,11 @@ class DM05DataConfig(Config):
 
     def _dataset_info(self) -> dict:
         assert self.dataset_name in CONVERSATION_DATA
-        return CONVERSATION_DATA[self.dataset_name]
+        dataset_info = CONVERSATION_DATA[self.dataset_name]
+        return {
+            k: val.value if isinstance(val, Enum) else val
+            for k, val in dataset_info.items()
+        }
 
     def _dataset_meta(self, dataset_info: dict) -> dict:
         return {
@@ -385,6 +415,7 @@ class DM05InferenceConfig(Config):
                     max_length=model_max_length,
                     image_keys=self.image_keys,
                     add_state=add_state,
+                    enable_logging=False,
                 ),
                 ToDevice(device=self.device),
             ]
@@ -439,12 +470,23 @@ class DM05InferenceConfig(Config):
     def _predict(self, data: dict) -> np.ndarray:
         state = data["state"]
         model_input = self.input_transform(data)
+        dm05_model = unwrap_dm05_model(self.model)
+        action_dim = dm05_model.model.config.action_dim
+        action_mask = torch.zeros(
+            1,
+            1,
+            action_dim,
+            device=self.device,
+            dtype=dm05_model.model.action_in_proj.weight.dtype,
+        )
+        action_mask[..., : self.output_action_dim] = 1.0
         actions = self.model.inference_action(
             input_ids=model_input["input_ids"],
             attention_mask=model_input["attention_mask"],
             pixel_values=model_input["pixel_values"],
             token_type_ids=model_input["token_type_ids"],
             diffusion_steps=self.diffusion_steps,
+            action_mask=action_mask,
         )
 
         raw_actions = (
@@ -513,6 +555,7 @@ class DM05Exp(Config):
 
         model = self.model_config.build_model(use_lora=self.use_lora)
         self.model = model
+        self.optimizer_config.prepare_model(model)
         dm05_model = unwrap_dm05_model(self.model)
         dm05_model.config.use_cache = False
         dm05_model.model.vlm.config.use_cache = False
@@ -568,9 +611,11 @@ class DM05Exp(Config):
             f"Training completed and model saved to {self.trainer_config.output_dir}"
         )
 
-    def inference(self) -> None:
-        # Force eager attention for inference to avoid OOM issues with flex attention
+    def _initialize_inference_runtime(self) -> None:
+        """Build the model and transforms shared by inference entry points."""
+        # Match the dexbotic RoboTwin2 inference backend.
         self.model_config.llm_attn_implementation = "eager"
+        logger.info(f"Loading model from {self.model_config.model_name_or_path}")
         model = self.model_config.build_model(use_lora=self.use_lora)
         ckpt_norm_stats_path = (
             pathlib.Path(self.model_config.model_name_or_path) / "norm_stats.json"
@@ -580,6 +625,13 @@ class DM05Exp(Config):
             if ckpt_norm_stats_path.exists()
             else self.data_config.norm_stats_path(self.model_config.chunk_size)
         )
+        if ckpt_norm_stats_path.exists():
+            logger.info(f"Using normalization stats from checkpoint: {norm_stats_path}")
+        else:
+            logger.warning(
+                "Normalization stats not found in checkpoint at "
+                f"{ckpt_norm_stats_path}; falling back to {norm_stats_path}"
+            )
         self.inference_config._initialize(
             model=model,
             model_name_or_path=self.model_config.model_name_or_path,
@@ -589,6 +641,9 @@ class DM05Exp(Config):
             use_absolute_action=(self.data_config.action_mode == ActionMode.RELATIVE),
             add_state=self.data_config.add_state,
         )
+
+    def inference(self) -> None:
+        self._initialize_inference_runtime()
         app = Flask(__name__)
         app.add_url_rule(
             "/process_frame",

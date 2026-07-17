@@ -21,6 +21,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 
 ## 最新动态
 
+- [2026-07-17] DM0.5 已开源 RoboTwin2.0 generalist 模型 checkpoint，以及基于 DM0.5 预训练模型的监督微调（SFT）代码。参考 [DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)。
 - [2026-07-09] DM0.5 正式发布。更多模型细节请阅读[技术博客](https://www.dexmal.com/blog/dm0.5/index.html)。
 
 ## 模型
@@ -29,12 +30,27 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 | --- | --- | --- |
 | DM05 | 用于微调的 DM0.5 基础模型 | [🤗 Dexmal/DM05](https://huggingface.co/Dexmal/DM05) |
 | DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Dexmal/DM05-libero](https://huggingface.co/Dexmal/DM05-libero) |
+| DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Dexmal/DM05-robotwin2](https://huggingface.co/Dexmal/DM05-robotwin2) |
 
 模型下载示例：
 
 ```bash
 huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
 ```
+
+## Benchmark 结果
+
+### LIBERO
+
+| 方法 | Spatial | Object | Goal | Long | 平均 | 参考 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| DM0.5 | 99.0 | 99.8 | 99.6 | 97.4 | 99.0 | [训练与评测](docs/zh/dm05_libero.md) |
+
+### RoboTwin 2.0
+
+| 方法 | Clean | Randomized | 平均 | 参考 |
+| --- | ---: | ---: | ---: | --- |
+| DM0.5 | 93.6 | 93.3 | 93.5 | [训练与评测](docs/zh/dm05_robotwin2.md) |
 
 ## 快速开始
 
@@ -210,9 +226,12 @@ script/dm05_launcher.sh \
 
 建议先使用内置 demo 数据和 `playground/dm05_sft_demo.py` 跑通一次完整的 DM05 SFT 流程，熟悉数据格式、归一化统计、训练、推理和服务验证后，再替换为自己的机器人数据进行 SFT。参考 [DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)。
 
-## 参考 LIBERO 微调流程
+## Benchmark 微调参考流程
 
-如需端到端微调 DM05，可以参考 [DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)。该流程覆盖数据与模型准备、SFT 训练、推理服务启动和 benchmark 评测，可作为将 DM05 适配到自有机器人数据集时的参考。
+如需端到端微调 DM05，可以参考 benchmark 微调指南，这些流程覆盖数据与模型准备、SFT 训练、推理服务启动和 benchmark 评测。
+
+- LIBERO：[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)
+- RoboTwin2.0：[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)
 
 ## 使用指南
 
@@ -220,7 +239,7 @@ script/dm05_launcher.sh \
 - 准备数据：参考[数据使用指南](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md)
 - 启动推理服务：参考[推理](#推理)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
-- LIBERO 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)
+- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)和[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)；LIBERO LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)
 
 ## 社区与支持
 

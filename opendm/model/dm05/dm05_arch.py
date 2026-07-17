@@ -747,6 +747,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         token_type_ids: torch.LongTensor | None = None,
         cache_position: torch.LongTensor | None = None,
         action: torch.FloatTensor | None = None,
+        action_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> Gemma3CausalLMOutputWithPast:
         """Run the training forward pass and compute flow-matching loss."""
@@ -779,6 +780,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         )
         time_expanded = time[:, None, None]
         x_t = time_expanded * noise + (1 - time_expanded) * action
+        x_t = x_t * action_mask
         u_t = noise - action
 
         # Build suffix embeddings and per-layer time conditioning.
@@ -821,7 +823,9 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
 
         elem_mse = F.mse_loss(v_t, u_t, reduction="none")  # [B, T, D]
 
-        per_sample_fm = elem_mse.mean(dim=(1, 2))
+        per_sample_fm = (elem_mse * action_mask).sum(dim=(1, 2)) / action_mask.sum(
+            dim=(1, 2)
+        )
         fm_loss = per_sample_fm.mean()
 
         return DM05OutputWithPast(
@@ -846,6 +850,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         image_masks: torch.BoolTensor | None = None,
         diffusion_steps: int = 10,
         past_key_values: DynamicCache | None = None,
+        action_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
         kv_cache = DynamicCache(config=self.model.language_model.config)
@@ -873,10 +878,14 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             device=device,
             dtype=dtype,
         )
+        time_val = 1.0
         dt = -1.0 / diffusion_steps
-        time_tensor = torch.full((batch_size,), 1.0, device=device, dtype=dtype)
-
         for _ in range(diffusion_steps):
+            time_tensor = torch.full(
+                (batch_size,), time_val, device=device, dtype=dtype
+            )
+            if action_mask is not None:
+                x_t = x_t * action_mask
             suffix_embeds = self.model.action_in_proj(x_t)
             adarms_cond = self._build_adarms_cond(time_tensor, suffix_embeds.dtype)
             suffix_len = int(suffix_embeds.shape[1])
@@ -907,8 +916,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
 
             v_t = self.model.action_out_proj(suffix_out)
             x_t = x_t + v_t * dt
-            time_tensor = time_tensor + dt
-
+            time_val += dt
         return x_t
 
     def _extract_prefix_cache_tensors(
