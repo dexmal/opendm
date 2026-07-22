@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://www.dexmal.com/blog/dm0.5/index_en.html"><img src="https://img.shields.io/badge/📖-Tech_Blog-blue" alt="Tech Blog"></a>
   <a href="https://huggingface.co/collections/Dexmal/dm05"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
+  <a href="https://www.modelscope.cn/collections/Dexmal/DM05"><img src="https://img.shields.io/badge/%F0%9F%A4%96-ModelScope-624AFF" alt="ModelScope"></a>
   <a href="https://maas.dexmal.com/"><img src="https://img.shields.io/badge/MaaS-Online-brightgreen.svg" alt="MaaS"></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -29,9 +30,9 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 | Model | Description | Checkpoint |
 | --- | --- | --- |
-| DM05 | Base DM0.5 model for fine-tuning | [🤗 Dexmal/DM05](https://huggingface.co/Dexmal/DM05) |
-| DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Dexmal/DM05-libero](https://huggingface.co/Dexmal/DM05-libero) |
-| DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Dexmal/DM05-robotwin2](https://huggingface.co/Dexmal/DM05-robotwin2) |
+| DM05 | Base DM0.5 model for fine-tuning | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05) |
+| DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
+| DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 
 Example checkpoint download:
 

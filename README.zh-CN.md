@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://www.dexmal.com/blog/dm0.5/index.html"><img src="https://img.shields.io/badge/📖-Tech_Blog-blue" alt="Tech Blog"></a>
   <a href="https://huggingface.co/collections/Dexmal/dm05"><img src="https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face-yellow" alt="Hugging Face"></a>
+  <a href="https://www.modelscope.cn/collections/Dexmal/DM05"><img src="https://img.shields.io/badge/%F0%9F%A4%96-ModelScope-624AFF" alt="ModelScope"></a>
   <a href="https://maas.dexmal.com/"><img src="https://img.shields.io/badge/MaaS-Online-brightgreen.svg" alt="MaaS"></a>
   <a href="#许可"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -28,9 +29,9 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 
 | 模型 | 描述 | 权重地址 |
 | --- | --- | --- |
-| DM05 | 用于微调的 DM0.5 基础模型 | [🤗 Dexmal/DM05](https://huggingface.co/Dexmal/DM05) |
-| DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Dexmal/DM05-libero](https://huggingface.co/Dexmal/DM05-libero) |
-| DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Dexmal/DM05-robotwin2](https://huggingface.co/Dexmal/DM05-robotwin2) |
+| DM05 | 用于微调的 DM0.5 基础模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05) |
+| DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
+| DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 
 模型下载示例：
 
