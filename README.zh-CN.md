@@ -22,6 +22,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 
 ## 最新动态
 
+- [2026-07-24] DM0.5 已新增 SO101 pick cube 微调 checkpoint 和 LoRA SFT 流程。参考 [DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)。
 - [2026-07-17] DM0.5 已开源 RoboTwin2.0 generalist 模型 checkpoint，以及基于 DM0.5 预训练模型的监督微调（SFT）代码。参考 [DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)。
 - [2026-07-09] DM0.5 正式发布。更多模型细节请阅读[技术博客](https://www.dexmal.com/blog/dm0.5/index.html)。
 
@@ -32,6 +33,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 | DM05 | 用于微调的 DM0.5 基础模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05) |
 | DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
+| DM05-SO101-Pick-Cube | 用于 SO101 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
 
 模型下载示例：
 
@@ -233,6 +235,7 @@ script/dm05_launcher.sh \
 
 - LIBERO：[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)
 - RoboTwin2.0：[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)
+- SO101：[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 
 ## 使用指南
 
@@ -240,7 +243,7 @@ script/dm05_launcher.sh \
 - 准备数据：参考[数据使用指南](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md)
 - 启动推理服务：参考[推理](#推理)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
-- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)和[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)；LIBERO LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)
+- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)和[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 
 ## 社区与支持
 

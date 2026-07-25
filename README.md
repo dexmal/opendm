@@ -22,6 +22,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## News
 
+- [2026-07-24] DM0.5 has added the SO101 pick cube fine-tuned checkpoint and the LoRA SFT workflow. See the [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 - [2026-07-17] DM0.5 has open-sourced the RoboTwin2.0 generalist model checkpoint, along with the supervised fine-tuning (SFT) code built upon the DM0.5 pretrained model. See the [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md).
 - [2026-07-09] DM0.5 is officially released. Read the [technical blog](https://www.dexmal.com/blog/dm0.5/index_en.html) for more details.
 
@@ -33,6 +34,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 | DM05 | Base DM0.5 model for fine-tuning | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05) |
 | DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
+| DM05-SO101-Pick-Cube | SO101 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
 
 Example checkpoint download:
 
@@ -236,6 +238,7 @@ Use the benchmark fine-tuning guides as end-to-end references for fine-tuning DM
 
 - LIBERO: [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md)
 - RoboTwin2.0: [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md)
+- SO101: [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md)
 
 ## Guides
 
@@ -243,7 +246,7 @@ Use the benchmark fine-tuning guides as end-to-end references for fine-tuning DM
 - Prepare data: see the [Data Guide](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md).
 - Start inference service: see [Inference](#inference).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
-- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) and [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md); for LIBERO LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md).
+- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) and [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 
 ## Community and Support
 

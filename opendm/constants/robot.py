@@ -16,6 +16,7 @@ class RobotType(Enum):
     DOS_W1 = "DOS W1"
     FRANKA = "Franka"
     ALOHA_ROBOTWIN2 = "Aloha RoboTwin2"
+    SO101 = "SO101"
 
 
 ROBOT_STATE_DESCS = {
@@ -27,4 +28,5 @@ ROBOT_STATE_DESCS = {
     + [RobotStateDesc.GRIPPER]
     + [RobotStateDesc.JOINT] * 6
     + [RobotStateDesc.GRIPPER],
+    RobotType.SO101: [RobotStateDesc.JOINT] * 5 + [RobotStateDesc.GRIPPER],
 }
