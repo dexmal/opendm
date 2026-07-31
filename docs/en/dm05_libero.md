@@ -79,7 +79,8 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name libero_pi0_all \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10
+  --model-config.chunk-size 10 \
+  --trainer-config.num-train-steps 100000
 ```
 
 Arguments:
@@ -90,6 +91,7 @@ Arguments:
 - `--data-config.dataset-name libero_pi0_all`: LIBERO dataset name used for training.
 - `--model-config.model-name-or-path ./checkpoints/DM05`: base model checkpoint path.
 - `--model-config.chunk-size 10`: action chunk length. It must remain consistent between training and inference.
+- `--trainer-config.num-train-steps 100000`: total number of training steps.
 
 ## LIBERO Inference
 

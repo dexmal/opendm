@@ -34,18 +34,16 @@ RoboTwin 2.0 完整数据集和 DM05 基础模型可从 Hugging Face 下载：
 ```bash
 cd opendm
 
-# 下载 RoboTwin 2.0 完整数据集压缩包。
+# 下载 RoboTwin 2.0 数据集压缩包的全部分卷。
 mkdir -p data/.hf_downloads/robotwin
-hf download Dexmal/robotwin2-full robotwin2.tar.gz \
+hf download Dexmal/robotwin2-full \
   --repo-type dataset \
   --local-dir data/.hf_downloads/robotwin
 
-# 压缩包内包含一个顶层数据目录，将其中的 jsonl 和 video 目录整理到
-# OpenDM 注册文件指定的位置。
-mkdir -p data/robotwin2.0
-tar -xzf data/.hf_downloads/robotwin/robotwin2.tar.gz \
-  -C data/robotwin2.0 \
-  --strip-components=1
+# 合并分卷，并将压缩包顶层的 robotwin2.0 目录解压到 ./data，
+# 与 OpenDM 注册文件中的路径保持一致。
+cat data/.hf_downloads/robotwin/robotwin2.tar.part-* \
+  | tar -xf - -C data
 
 # 下载 DM05 基础模型。
 hf download Dexmal/DM05 --local-dir checkpoints/DM05
@@ -90,7 +88,8 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name robotwin2_generalist \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 50
+  --model-config.chunk-size 50 \
+  --trainer-config.num-train-steps 100000
 ```
 
 参数说明：
@@ -103,6 +102,7 @@ script/dm05_launcher.sh \
   `opendm/dataset/robotwin2.py` 中注册的数据集名称。
 - `--model-config.model-name-or-path ./checkpoints/DM05`：DM05 基础模型路径。
 - `--model-config.chunk-size 50`：action chunk 长度，训练、推理和评测必须保持一致。
+- `--trainer-config.num-train-steps 100000`：总训练步数。
 
 默认训练输出目录为 `user_checkpoints/dm05_robotwin2`。如需调整 batch size、
 保存间隔、输出目录或总训练步数，可通过对应的命令行参数覆盖默认配置。

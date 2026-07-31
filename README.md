@@ -166,7 +166,7 @@ A successful response has the following shape.
 
 ### Data Preparation
 
-Prepare data files and dataset configuration according to the dexbotic [Data Guide](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md). Make sure `--data-config.dataset-name` in the training command matches the registered dataset name.
+Prepare data files and register the dataset according to the OpenDM [Data Guide](docs/en/data.md). Make sure `--data-config.dataset-name` in the training command matches the registered dataset name.
 
 The training script selects a dataset through `--data-config.dataset-name`. Before training, register your dataset in the project dataset registry. We recommend using an existing file such as `opendm/dataset/demo.py` as a reference, then creating a new dataset config file such as `opendm/dataset/my_robot.py` and updating the dataset name, data paths, image keys, and state description.
 
@@ -211,20 +211,44 @@ After environment setup, source initialization, and data preparation, start mode
 
 ```bash
 script/dm05_launcher.sh \
+  --exp playground/dm05_sft_demo.py \
   --task train \
   --nproc_per_node 8 \
   --data-config.dataset-name my_robot \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 50
+  --model-config.chunk-size 50 \
+  --trainer-config.num-train-steps 50000
 ```
 
 Arguments:
 
+- `--exp playground/dm05_sft_demo.py`: this example uses the DM05 SFT demo configuration as its training entry point. Copy and adapt this configuration when your dataset requires different settings.
 - `--task train`: run in training mode.
 - `--nproc_per_node 8`: number of training processes on a single node, usually matching the number of GPUs.
 - `--data-config.dataset-name my_robot`: dataset name for training. It must match the project dataset configuration.
 - `--model-config.model-name-or-path ./checkpoints/DM05`: initial model checkpoint path.
 - `--model-config.chunk-size 50`: action chunk length predicted by the model.
+- `--trainer-config.num-train-steps 50000`: total number of training steps.
+
+#### Enable Weights & Biases Logging
+
+W&B logging is optional and is enabled only when a project name is provided. OpenDM already includes the `wandb` dependency.
+
+1. Authenticate on the training machine:
+
+   ```bash
+   wandb login
+   ```
+
+   For a non-interactive job, set `WANDB_API_KEY` instead. Do not commit the API key to the repository.
+
+2. Add the following option to the existing training command:
+
+   ```text
+   --trainer-config.wandb-project <project-name>
+   ```
+
+   Replace `<project-name>` with the W&B project to use, for example `dm05-sft`. Remove this option to disable W&B logging.
 
 Training logs will include data loading, model initialization, loss values, and checkpoint saving. Before running a full training job, verify that the data path, model checkpoint path, and GPU count are correctly configured.
 
@@ -243,7 +267,7 @@ Use the benchmark fine-tuning guides as end-to-end references for fine-tuning DM
 ## Guides
 
 - Download models: see [Models](#models) or visit [Dexmal Hugging Face](https://huggingface.co/Dexmal).
-- Prepare data: see the [Data Guide](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md).
+- Prepare data: see the [OpenDM Data Guide](docs/en/data.md).
 - Start inference service: see [Inference](#inference).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
 - Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) and [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).

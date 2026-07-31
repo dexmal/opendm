@@ -133,7 +133,8 @@ script/dm05_launcher.sh \
   --exp playground/dm05_libero_lora.py \
   --task train \
   --nproc_per_node 8 \
-  --model-config.model-name-or-path ./checkpoints/DM05
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --trainer-config.num-train-steps 50000
 ```
 
 `playground/dm05_libero_lora.py` already provides the LIBERO LoRA defaults,

@@ -1,4 +1,4 @@
-"""LIBERO dataset registration."""
+"""RoboTwin 2.0 dataset registration."""
 
 from opendm.constants.robot import ROBOT_STATE_DESCS, RobotType
 from opendm.dataset.register import register_dataset

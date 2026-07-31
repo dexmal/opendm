@@ -37,18 +37,16 @@ Prepare the dataset and model from the OpenDM repository root:
 ```bash
 cd opendm
 
-# Download the complete RoboTwin 2.0 dataset archive.
+# Download all parts of the RoboTwin 2.0 dataset archive.
 mkdir -p data/.hf_downloads/robotwin
-hf download Dexmal/robotwin2-full robotwin2.tar.gz \
+hf download Dexmal/robotwin2-full \
   --repo-type dataset \
   --local-dir data/.hf_downloads/robotwin
 
-# The archive contains a single top-level dataset directory. Organize its
-# jsonl and video directories at the location registered by OpenDM.
-mkdir -p data/robotwin2.0
-tar -xzf data/.hf_downloads/robotwin/robotwin2.tar.gz \
-  -C data/robotwin2.0 \
-  --strip-components=1
+# Join the split archive and extract its top-level robotwin2.0 directory
+# under ./data, matching the path registered by OpenDM.
+cat data/.hf_downloads/robotwin/robotwin2.tar.part-* \
+  | tar -xf - -C data
 
 # Download the DM05 base checkpoint.
 hf download Dexmal/DM05 --local-dir checkpoints/DM05
@@ -96,7 +94,8 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name robotwin2_generalist \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 50
+  --model-config.chunk-size 50 \
+  --trainer-config.num-train-steps 100000
 ```
 
 Arguments:
@@ -112,6 +111,7 @@ Arguments:
 - `--model-config.model-name-or-path ./checkpoints/DM05`: DM05 base checkpoint.
 - `--model-config.chunk-size 50`: action chunk length. Use the same value for
   training, inference, and evaluation.
+- `--trainer-config.num-train-steps 100000`: total number of training steps.
 
 By default, training outputs are written under
 `user_checkpoints/dm05_robotwin2`. Trainer settings such as batch size, save

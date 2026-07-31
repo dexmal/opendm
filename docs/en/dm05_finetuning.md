@@ -85,6 +85,7 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --task train \
   --model-config.model-name-or-path ./checkpoints/DM05 \
+  --trainer-config.num-train-steps 50000 \
   --trainer-config.output-dir ./user_checkpoints/dm05_sft_demo
 ```
 
@@ -128,6 +129,7 @@ script/dm05_launcher.sh \
   --task train \
   --data-config.dataset-name my_robot \
   --model-config.model-name-or-path ./checkpoints/DM05 \
+  --trainer-config.num-train-steps 50000 \
   --trainer-config.output-dir ./user_checkpoints/dm05_my_robot
 ```
 

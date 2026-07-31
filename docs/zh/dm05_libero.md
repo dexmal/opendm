@@ -75,7 +75,8 @@ script/dm05_launcher.sh \
   --nproc_per_node 8 \
   --data-config.dataset-name libero_pi0_all \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 10
+  --model-config.chunk-size 10 \
+  --trainer-config.num-train-steps 100000
 ```
 参数说明：
 - `--exp playground/dm05_libero.py`：使用 LIBERO 场景的训练入口，该入口预设了 LIBERO 需要的 action mode、state 输入方式和默认 chunk size。
@@ -84,6 +85,7 @@ script/dm05_launcher.sh \
 - `--data-config.dataset-name libero_pi0_all`：指定训练使用的 LIBERO 数据集名称。
 - `--model-config.model-name-or-path ./checkpoints/DM05`：指定基础模型 checkpoint 路径。
 - `--model-config.chunk-size 10`：action chunk 长度，需要与训练和推理配置保持一致。
+- `--trainer-config.num-train-steps 100000`：总训练步数。
 
 ## Libero 推理
 **完成环境安装和源码初始化后**，可以利用上一步训练好的 DM05 Libero 模型 checkpoint 启动模型推理服务。

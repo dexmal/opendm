@@ -163,7 +163,7 @@ bash tests/curl_demo.sh http://SERVER_IP:7891/process_frame
 
 ### 数据准备
 
-按照 dexbotic [数据使用指南](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md)准备数据文件和数据集配置，并确保训练命令中的 `--data-config.dataset-name` 与实际注册的数据集名称一致。
+按照 OpenDM [数据使用指南](docs/zh/data.md)准备数据文件并注册数据集，并确保训练命令中的 `--data-config.dataset-name` 与实际注册的数据集名称一致。
 
 训练脚本通过 `--data-config.dataset-name` 指定数据集名称。启动训练前，需要先在项目数据注册表中注册对应数据集。建议参考已有的 `opendm/dataset/demo.py`，复制一份新的数据集配置文件，例如 `opendm/dataset/my_robot.py`，然后修改数据集名称、数据路径、图像字段和状态描述。
 
@@ -208,20 +208,44 @@ register_dataset(
 
 ```bash
 script/dm05_launcher.sh \
+  --exp playground/dm05_sft_demo.py \
   --task train \
   --nproc_per_node 8 \
   --data-config.dataset-name my_robot \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.chunk-size 50
+  --model-config.chunk-size 50 \
+  --trainer-config.num-train-steps 50000
 ```
 
 参数说明：
 
+- `--exp playground/dm05_sft_demo.py`：本示例使用 DM05 SFT demo 配置作为训练入口；如果自定义数据需要不同配置，可以复制并调整该入口。
 - `--task train`：指定当前任务为训练模式。
 - `--nproc_per_node 8`：单机启动的训练进程数，通常对应使用的 GPU 数量。
 - `--data-config.dataset-name my_robot`：指定训练数据集名称，需要与项目中的数据配置保持一致。
 - `--model-config.model-name-or-path ./checkpoints/DM05`：指定初始模型 checkpoint 路径。
 - `--model-config.chunk-size 50`：指定模型一次预测的动作块（action chunk）长度。
+- `--trainer-config.num-train-steps 50000`：总训练步数。
+
+#### 启用 Weights & Biases 训练记录
+
+W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含 `wandb` 依赖。
+
+1. 在训练机器上完成认证：
+
+   ```bash
+   wandb login
+   ```
+
+   对于非交互式任务，可以改为设置 `WANDB_API_KEY`。不要将 API key 提交到代码仓库。
+
+2. 在现有训练命令中增加以下参数：
+
+   ```text
+   --trainer-config.wandb-project <project-name>
+   ```
+
+   将 `<project-name>` 替换为要使用的 W&B 项目名称，例如 `dm05-sft`。删除该参数即可关闭 W&B。
 
 训练开始后，日志会输出数据加载、模型初始化、loss、checkpoint 保存等信息。实际训练前请确认数据路径、模型权重路径和 GPU 数量均已正确配置。
 
@@ -240,7 +264,7 @@ script/dm05_launcher.sh \
 ## 使用指南
 
 - 下载模型：参考[模型](#模型)或访问 [Dexmal Hugging Face](https://huggingface.co/Dexmal)
-- 准备数据：参考[数据使用指南](https://github.com/dexmal/dexbotic/blob/main/docs/Data.md)
+- 准备数据：参考 [OpenDM 数据使用指南](docs/zh/data.md)
 - 启动推理服务：参考[推理](#推理)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
 - Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)和[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)

@@ -114,7 +114,8 @@ script/dm05_launcher.sh \
   --exp playground/dm05_libero_lora.py \
   --task train \
   --nproc_per_node 8 \
-  --model-config.model-name-or-path ./checkpoints/DM05
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --trainer-config.num-train-steps 50000
 ```
 
 `playground/dm05_libero_lora.py` 已经提供 LIBERO LoRA 默认值，包括数据集名称、action mode、chunk size、attention 设置、学习率、warmup steps、batch size、保存间隔和总训练步数。只有在需要修改参考配置时才覆盖这些选项。
