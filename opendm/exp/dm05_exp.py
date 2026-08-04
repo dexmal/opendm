@@ -243,6 +243,7 @@ class DM05DataConfig(Config):
     compute_norm_stats_max_batches: int | None = field(default=None)
     norm_stats_root: str = field(default="./norm_stats")
     add_state: bool = field(default=True)
+    is_history: bool = field(default=False)
 
     def _dataset_info(self) -> dict:
         assert self.dataset_name in CONVERSATION_DATA
@@ -417,6 +418,7 @@ class DM05InferenceConfig(Config):
         model_max_length: int,
         use_absolute_action: bool,
         add_state: bool = True,
+        is_history: bool = False,
     ) -> None:
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         if torch.cuda.is_available():
@@ -433,6 +435,7 @@ class DM05InferenceConfig(Config):
         model.to(self.device)
         model.eval()
         self.model = model
+        self.is_history = is_history
         self.fast_runtime = None
         transform_max_length = model_max_length
         if self.backend == "fast":
@@ -440,10 +443,15 @@ class DM05InferenceConfig(Config):
             from opendm.infer.dm05_trt_utils import ensure_dm05_fast_inference_engine
 
             dm05_model = unwrap_dm05_model(model)
+            num_vision_images = len(self.image_prompts)
+            if is_history:
+                from opendm.infer.dm05_trt_utils import MAX_HISTORY_IMAGES
+
+                num_vision_images += MAX_HISTORY_IMAGES
             engine_path = ensure_dm05_fast_inference_engine(
                 checkpoint=model_name_or_path,
                 engine_path=self.vision_trt_engine_path,
-                num_images=len(self.image_prompts),
+                num_images=num_vision_images,
                 force_rebuild=self.force_rebuild,
             )
             self.vision_trt_engine_path = str(engine_path)
@@ -452,6 +460,7 @@ class DM05InferenceConfig(Config):
                 vision_trt_engine_path=engine_path,
                 prefix_seq_len_buckets=self.prefix_seq_len_buckets,
                 diffusion_steps=self.diffusion_steps,
+                is_history=is_history,
             )
             vlm_model = dm05_model.model.vlm.model
             self.fast_image_token_id = int(vlm_model.config.image_token_id)
@@ -516,6 +525,7 @@ class DM05InferenceConfig(Config):
                     max_length=transform_max_length,
                     image_prompts=self.image_prompts,
                     add_state=add_state,
+                    is_history=is_history,
                     enable_logging=False,
                 ),
                 ToDevice(device=self.device),
@@ -614,6 +624,7 @@ class DM05InferenceConfig(Config):
         robot_type: str | None,
         speed: str | None = None,
         control_mode: str | None = None,
+        history_images: list | None = None,
     ) -> dict:
         if len(images) != len(self.image_prompts):
             raise ValueError(
@@ -641,13 +652,24 @@ class DM05InferenceConfig(Config):
                 "registration provides state_desc for absolute-action reconstruction."
             )
 
+        if history_images and not self.is_history:
+            raise ValueError(
+                "history_images were provided but the service was started without "
+                "--data-config.is-history."
+            )
+
         pil_images = [
             self._load_image(img, f"image[{i}]") for i, img in enumerate(images)
+        ]
+        pil_history_images = [
+            self._load_image(img, f"history_images[{i}]")
+            for i, img in enumerate(history_images or [])
         ]
         state = self._parse_state(states)
 
         return {
             "images": pil_images,
+            "history_images": pil_history_images,
             "prompt": "" if text is None else str(text),
             "state": state,
             "meta_data": {
@@ -699,6 +721,8 @@ class DM05InferenceConfig(Config):
             "token_type_ids": model_input["token_type_ids"],
             "diffusion_steps": self.diffusion_steps,
             "action_mask": action_mask,
+            "history_pixel_values": model_input.get("history_pixel_values"),
+            "history_mask": model_input.get("history_mask"),
         }
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -790,6 +814,18 @@ class DM05InferenceConfig(Config):
                 )
             images.append(self._decode_b64_image(image_b64, f"images.{slot}"))
 
+        history_images_raw = observation.get("history_images")
+        history_images = []
+        if history_images_raw is not None:
+            if not isinstance(history_images_raw, list):
+                raise ValueError(
+                    "observation.history_images must be a JSON array of base64 images"
+                )
+            history_images = [
+                self._decode_b64_image(image_b64, f"history_images[{i}]")
+                for i, image_b64 in enumerate(history_images_raw)
+            ]
+
         return self._prepare_model_input(
             text=observation.get("prompt", ""),
             images=images,
@@ -797,6 +833,7 @@ class DM05InferenceConfig(Config):
             robot_type=observation.get("robot_type"),
             speed=observation.get("speed"),
             control_mode=observation.get("control_mode"),
+            history_images=history_images,
         )
 
     def _prepare_input_legacy(self) -> dict:
@@ -811,6 +848,7 @@ class DM05InferenceConfig(Config):
             robot_type=request.form.get("robot_type") or None,
             speed=request.form.get("speed") or None,
             control_mode=request.form.get("control_mode") or None,
+            history_images=request.files.getlist("history_images"),
         )
 
     def _infer(self):
@@ -1021,6 +1059,7 @@ class DM05Exp(Config):
             model_max_length=self.trainer_config.model_max_length,
             use_absolute_action=(self.data_config.action_mode == ActionMode.RELATIVE),
             add_state=self.data_config.add_state,
+            is_history=self.data_config.is_history,
         )
 
     def inference(self) -> None:

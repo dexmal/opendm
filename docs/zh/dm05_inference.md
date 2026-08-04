@@ -190,7 +190,9 @@ python -m opendm.infer.build_vision_trt \
   --num-images 2
 ```
 
-`--num-images` 必须等于 `--inference-config.image-prompts` 的数量。
+`--num-images` 默认等于 `--inference-config.image-prompts` 的数量。若启动时加了
+`--data-config.is-history`，则为 `len(image_prompts) + 5`（最多 5 个 history 槽位）。
+例如三路当前图 + history 应使用 `--num-images 8`。
 
 ### Fast Backend 约束
 
@@ -249,6 +251,9 @@ EOF
 - `observation.images`：必填 JSON 对象，值为 base64 编码图片。键名必须是连续的 1-based
   字符串（`"1"`、`"2"`、…），并与 `--inference-config.image-prompts` **按顺序一一对应**：
   例如 `"1"` → 第 1 个 prompt（如 `Head`），`"2"` → 第 2 个（如 `Left wrist`）。
+- `observation.history_images`：可选的 base64 历史帧 JSON 数组，**从旧到新**。仅当服务启动时加了
+  `--data-config.is-history` 才可使用；无历史时省略或传 `[]`。完整请求见
+  [`tests/curl_history.sh`](../../tests/curl_history.sh)。
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
   继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
 - `observation.control_mode` 和 `observation.speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；
@@ -270,10 +275,14 @@ EOF
 }
 ```
 
-使用内置 demo checkpoint 及其三图请求格式时，也可以运行：
+使用内置 demo checkpoint 时，也可以直接跑脚本：
 
 ```bash
+# 无 history（普通三图请求）
 bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+
+# 带 history_images（服务需以 --data-config.is-history 启动）
+bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
 ```
 
 ### Legacy `/process_frame` 接口
@@ -295,6 +304,8 @@ Legacy 请求字段：
 - `text`：任务指令，默认是空字符串。
 - `states`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
 - `image`：可重复的图片字段，数量和顺序必须与 `image_prompts` 一致（如 Head、Left wrist、Right wrist）。
+- `history_images`：可选的历史帧（重复 multipart 字段，从旧到新）。仅当服务启动时加了
+  `--data-config.is-history` 才可使用。
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
   例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
 - `control_mode` 和 `speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；如果 checkpoint
@@ -323,6 +334,7 @@ Legacy 成功响应保持历史格式：
 | `--inference-config.diffusion-steps` | Action diffusion steps，默认值为 `10`。 |
 | `--inference-config.output-action-dim` | 返回的 action 维度，必须与归一化统计一致。 |
 | `--inference-config.image-prompts` | 有序相机标签，与 `observation.images` 的 `"1"`、`"2"`、… 一一对应。 |
+| `--data-config.is-history` | 开启后才接受 `history_images`；普通 `curl_demo.sh` 不需要。 |
 | `--inference-config.backend` | `default` 或 `fast`。 |
 | `--inference-config.vision-trt-engine-path` | 当前 checkpoint 专用的 TensorRT vision engine 路径；默认值为 `checkpoints/trt_engines/dm05_vision.engine`。 |
 | `--inference-config.force-rebuild` | Fast 推理前重新构建 vision engine。 |
@@ -337,7 +349,7 @@ Legacy 成功响应保持历史格式：
 | State 或 action 维度错误 | 让 `observation.state` 和 `output_action_dim` 与归一化向量维度一致。 |
 | 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_prompts` 一致。 |
 | Fast 启动阶段出现 import 错误 | 在当前环境重新执行 `pip install -e ".[fast-infer]"`，并检查 `import tensorrt`、`import triton`、`import torch.nn.attention.flex_attention` 是否成功。 |
-| TensorRT 图片数量不匹配 | 使用与 image keys 数量相同的 `--num-images` 重建 engine。 |
+| TensorRT 图片数量不匹配 | 用与 `image_prompts` 数量相同的 `--num-images` 重建；开启 history 时用 `len(image_prompts) + 5`。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |
 | Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 1024。 |
 | Prefix 超过 1024 tokens | 缩短 instruction 或降低 `model_max_length`。 |

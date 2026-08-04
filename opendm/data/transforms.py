@@ -12,7 +12,11 @@ import torch
 from loguru import logger
 from PIL import Image
 
-from opendm.constants.robot import ActionMode, RobotStateDesc
+from opendm.constants.robot import (
+    HISTORY_TOKENS_PER_IMAGE,
+    ActionMode,
+    RobotStateDesc,
+)
 from opendm.data.augmentations import TransformPipeline
 
 
@@ -49,6 +53,9 @@ class Pipeline:
 class PixelTransform:
     """Apply an image augmentation pipeline to ``data["images"]`` in list order.
 
+    Also transforms ``data["history_images"]`` when present, matching dexbotic's
+    ``dm05_history`` inference path (PadToSquare + Resize before image_processor).
+
     Args:
         transform_pipeline: Albumentations-style pipeline that accepts an
             ``image`` keyword and returns a mapping containing ``"image"``.
@@ -68,6 +75,9 @@ class PixelTransform:
 
     def __call__(self, data):
         data["images"] = self._transform_images(data["images"])
+        history_images = data.get("history_images")
+        if history_images:
+            data["history_images"] = self._transform_images(history_images)
         return data
 
 
@@ -449,6 +459,9 @@ class ChatTokenization:
     """Tokenize a multimodal robot sample with a chat template.
 
     Current-view images are interleaved via the processor chat template.
+    Optional history images use ``<unused0>`` placeholders
+    (``HISTORY_TOKENS_PER_IMAGE`` per image) and are injected separately in the
+    model prefix forward.
 
     Args:
         processor: Multimodal processor or tokenizer-compatible object with
@@ -457,6 +470,8 @@ class ChatTokenization:
         max_length: Maximum token length. Long prompts are shortened to fit.
         image_prompts: Prompt labels zipped with ``data["images"]`` in order.
         add_state: Whether to append a discretized state text field.
+        is_history: Whether to insert history-image placeholders and emit
+            ``history_pixel_values`` / ``history_mask``.
         enable_logging: Whether to log the decoded tokenized prompt.
     """
 
@@ -467,6 +482,7 @@ class ChatTokenization:
         max_length: int | None = 1024,
         image_prompts: list[str] | None = None,
         add_state: bool = True,
+        is_history: bool = False,
         enable_logging: bool = False,
     ):
         self.processor = processor
@@ -477,7 +493,11 @@ class ChatTokenization:
         self.max_length = max_length
         self.image_prompts = image_prompts or []
         self.add_state = add_state
+        self.is_history = is_history
         self.enable_logging = enable_logging
+        self.history_placeholder_token_id = self.tokenizer.convert_tokens_to_ids(
+            "<unused0>"
+        )
 
     def action_to_bin_tokens(self, action: np.ndarray, n_bins: int = 256) -> list[int]:
         """Convert normalized continuous action values to integer bin IDs.
@@ -509,6 +529,21 @@ class ChatTokenization:
         text_parts.append(f"Overall speed: {speed}\n")
         text_parts.append(f"Task: {data['prompt']}.\n")
         user_content = [{"type": "text", "text": "".join(text_parts)}]
+
+        history_pixel_values = None
+        history_mask = None
+        if self.is_history:
+            history_images = data.get("history_images") or []
+            user_content[-1]["text"] += "History images: "
+            user_content[-1]["text"] += "<unused0>" * (
+                HISTORY_TOKENS_PER_IMAGE * len(history_images)
+            )
+            normalized = [image.convert("RGB") for image in history_images]
+            if normalized:
+                history_pixel_values = self.processor.image_processor(
+                    images=normalized,
+                    return_tensors="pt",
+                )["pixel_values"]
 
         for prompt, image in zip(self.image_prompts, data["images"], strict=True):
             label = f"{prompt} image: "
@@ -582,6 +617,12 @@ class ChatTokenization:
                     return_dict=True,
                     return_tensors="pt",
                 )
+        token_type_ids = inputs["token_type_ids"]
+        if self.is_history:
+            history_mask = inputs["input_ids"] == self.history_placeholder_token_id
+            # Match dexbotic: mark ``<unused0>`` history slots as image tokens (type=1).
+            token_type_ids = token_type_ids.clone()
+            token_type_ids[history_mask] = 1
         return {
             "action": torch.from_numpy(data["action"]) if "action" in data else None,
             "action_mask": (
@@ -590,7 +631,9 @@ class ChatTokenization:
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"],
             "pixel_values": inputs["pixel_values"],
-            "token_type_ids": inputs["token_type_ids"],
+            "token_type_ids": token_type_ids,
+            "history_pixel_values": history_pixel_values,
+            "history_mask": history_mask,
         }
 
 

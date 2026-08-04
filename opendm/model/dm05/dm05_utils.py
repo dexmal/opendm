@@ -216,6 +216,30 @@ def posemb_sincos(
     return torch.cat([torch.sin(sin_input), torch.cos(sin_input)], dim=1)
 
 
+# Gemma3 ``<unused1>`` — 0525 invalid history-slot pad.
+HISTORY_PAD_TOKEN_ID = 7
+
+
+def mask_history_pad_tokens_in_attention(
+    input_ids: torch.LongTensor | None,
+    attention_mask: torch.Tensor | None,
+) -> torch.Tensor | None:
+    """Zero attention on ``<unused1>`` history pads (dexbotic-open parity).
+
+    Avoid host sync (``.item()``) so this stays valid inside CUDA graph
+    capture used by the fast no-history path.
+    """
+    if input_ids is None:
+        return attention_mask
+
+    history_pad_mask = input_ids == HISTORY_PAD_TOKEN_ID
+    if attention_mask is None:
+        attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+    else:
+        attention_mask = attention_mask.clone()
+    return attention_mask.masked_fill(history_pad_mask, 0)
+
+
 def make_suffix_attn_mask(
     input_ids: torch.Tensor,
     prefix_len: int,
@@ -224,12 +248,16 @@ def make_suffix_attn_mask(
     device: torch.device,
     dtype: torch.dtype = torch.bfloat16,
     pad_token_id: int = 0,
+    invisible_prefix_token_ids: tuple[int, ...] = (),
 ) -> torch.Tensor:
     """Build the attention mask from suffix tokens to prefix and suffix tokens.
 
     Each suffix token can attend to:
     - Non-padding tokens in the prefix.
     - All suffix tokens with full attention.
+
+    ``invisible_prefix_token_ids`` (e.g. history ``<unused1>`` pads) are also
+    treated as invisible, matching dexbotic-open.
 
     Returns:
         A 4D attention mask with shape
@@ -242,6 +270,8 @@ def make_suffix_attn_mask(
     )
     prefix_ids = input_ids[:, :prefix_len]
     pad_mask = prefix_ids == pad_token_id
+    for token_id in invisible_prefix_token_ids:
+        pad_mask = pad_mask | (prefix_ids == token_id)
     pad_mask = pad_mask.unsqueeze(1).expand(-1, suffix_len, -1)
     prefix_mask = prefix_mask.masked_fill(pad_mask, NEG_INF)
 

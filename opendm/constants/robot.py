@@ -1,5 +1,11 @@
 from enum import Enum
 
+# Soft tokens per history image (``<unused0>`` placeholders / pooled vision tokens).
+HISTORY_TOKENS_PER_IMAGE = 16
+# 2D adaptive-pool spatial size; ``HISTORY_POOL_SIZE ** 2 == HISTORY_TOKENS_PER_IMAGE``.
+HISTORY_POOL_SIZE = int(HISTORY_TOKENS_PER_IMAGE**0.5)
+assert HISTORY_POOL_SIZE * HISTORY_POOL_SIZE == HISTORY_TOKENS_PER_IMAGE
+
 
 class ActionMode(Enum):
     ABSOLUTE = "absolute"

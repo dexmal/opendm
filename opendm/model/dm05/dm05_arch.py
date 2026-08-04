@@ -28,22 +28,24 @@ from transformers.models.gemma3.modeling_gemma3 import (
     repeat_kv,
 )
 
+from opendm.constants.robot import HISTORY_POOL_SIZE
 from opendm.model.base import (
     DMBaseConfig,
     DMPreTrainedModel,
 )
 from opendm.model.dm05.dm05_utils import (
+    HISTORY_PAD_TOKEN_ID,
     VLADynamicCache,
     is_flash_attention_2_available,
     is_flex_attention_available,
     make_suffix_attn_mask,
+    mask_history_pad_tokens_in_attention,
     patch_decoder_layers,
     posemb_sincos,
     validate_action_config_compatible,
 )
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -748,26 +750,23 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         cache_position: torch.LongTensor | None = None,
         action: torch.FloatTensor | None = None,
         action_mask: torch.BoolTensor | None = None,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> Gemma3CausalLMOutputWithPast:
         """Run the training forward pass and compute flow-matching loss."""
         batch_size = input_ids.shape[0]
 
-        # Step 1: run prefix forward to produce hidden states and fill KV cache.
-        kv_cache = VLADynamicCache(config=self.model.language_model.config)
-
-        prefix_position_ids = (attention_mask.cumsum(dim=-1) - 1).clamp_min_(0)
-        prefix_outputs = self.model.vlm.model(
+        # Step 1: prefix forward — history via unused0 scatter, current views via VLM.
+        kv_cache, prefix_len = self._compute_prefix_cache(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            position_ids=prefix_position_ids,
-            past_key_values=kv_cache,
             pixel_values=pixel_values,
             token_type_ids=token_type_ids,
-            cache_position=cache_position,
-            use_cache=True,
+            history_pixel_values=history_pixel_values,
+            history_mask=history_mask,
+            cache_cls=VLADynamicCache,
         )
-        prefix_hidden_states = prefix_outputs.last_hidden_state
 
         # Step 2: run suffix forward for flow matching.
         noise = torch.randn_like(action)
@@ -788,9 +787,9 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         adarms_cond = self._build_adarms_cond(time, suffix_embeds.dtype)
 
         # Run suffix forward with fused attention.
-        prefix_len = prefix_hidden_states.shape[1]
         suffix_len = suffix_embeds.shape[1]
 
+        invisible_prefix_token_ids = (HISTORY_PAD_TOKEN_ID,)
         suffix_attn_mask = make_suffix_attn_mask(
             input_ids=input_ids,
             prefix_len=prefix_len,
@@ -799,6 +798,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             device=suffix_embeds.device,
             dtype=suffix_embeds.dtype,
             pad_token_id=self.model.vlm.model.language_model.padding_idx,
+            invisible_prefix_token_ids=invisible_prefix_token_ids,
         )
 
         suffix_position_ids = self._build_suffix_position_ids(
@@ -807,6 +807,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             suffix_embeds.device,
             input_ids=input_ids,
             pad_token_id=self.model.vlm.model.language_model.padding_idx,
+            invisible_prefix_token_ids=invisible_prefix_token_ids,
         )
 
         suffix_out = self._suffix_forward(
@@ -851,21 +852,19 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         diffusion_steps: int = 10,
         past_key_values: DynamicCache | None = None,
         action_mask: torch.BoolTensor | None = None,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
-        kv_cache = DynamicCache(config=self.model.language_model.config)
-        prefix_position_ids = (attention_mask.cumsum(dim=-1) - 1).clamp_min_(0)
-
-        self.model.vlm.model(
+        kv_cache, prefix_len = self._compute_prefix_cache(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            position_ids=prefix_position_ids,
-            past_key_values=kv_cache,
             pixel_values=pixel_values,
             token_type_ids=token_type_ids,
-            use_cache=True,
+            history_pixel_values=history_pixel_values,
+            history_mask=history_mask,
+            cache_cls=DynamicCache,
         )
-        prefix_len = kv_cache.get_seq_length()
 
         batch_size = input_ids.shape[0]
         device = input_ids.device
@@ -889,6 +888,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             suffix_embeds = self.model.action_in_proj(x_t)
             adarms_cond = self._build_adarms_cond(time_tensor, suffix_embeds.dtype)
             suffix_len = int(suffix_embeds.shape[1])
+            invisible_prefix_token_ids = (HISTORY_PAD_TOKEN_ID,)
             suffix_attn_mask = make_suffix_attn_mask(
                 input_ids=input_ids,
                 prefix_len=prefix_len,
@@ -897,6 +897,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
                 device=suffix_embeds.device,
                 dtype=suffix_embeds.dtype,
                 pad_token_id=self.model.vlm.model.language_model.padding_idx,
+                invisible_prefix_token_ids=invisible_prefix_token_ids,
             )
             suffix_position_ids = self._build_suffix_position_ids(
                 prefix_len,
@@ -904,6 +905,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
                 device,
                 input_ids=input_ids,
                 pad_token_id=self.model.vlm.model.language_model.padding_idx,
+                invisible_prefix_token_ids=invisible_prefix_token_ids,
             )
 
             suffix_out = self._suffix_forward(
@@ -918,6 +920,91 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             x_t = x_t + v_t * dt
             time_val += dt
         return x_t
+
+    def _compute_prefix_cache(
+        self,
+        *,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor | None,
+        pixel_values: torch.Tensor | None,
+        token_type_ids: torch.LongTensor | None,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
+        cache_cls: type[Cache] = DynamicCache,
+    ) -> tuple[Cache, int]:
+        """Fill VLM KV cache; history images are injected separately from current views.
+
+        History uses ``<unused0>`` placeholders replaced via vision features +
+        ``masked_scatter``. Invalid 0525 slots use ``<unused1>`` pads; those
+        positions are zeroed in embeds and masked in attention/position ids
+        (dexbotic-open parity). Current camera images still go through the
+        standard Gemma3 multimodal path (``pixel_values`` + ``token_type_ids``).
+        """
+        kv_cache = cache_cls(config=self.model.language_model.config)
+        prefix_inputs_embeds = None
+        vlm_model = self.model.vlm.model
+        embed_tokens = vlm_model.get_input_embeddings()
+        has_history_pixels = (
+            history_pixel_values is not None
+            and history_mask is not None
+            and bool(history_mask.any().item())
+        )
+        has_history_pads = bool((input_ids == HISTORY_PAD_TOKEN_ID).any().item())
+
+        if has_history_pixels or has_history_pads:
+            inputs_embeds = embed_tokens(input_ids)
+            if has_history_pads:
+                inputs_embeds = inputs_embeds.clone()
+                inputs_embeds[input_ids == HISTORY_PAD_TOKEN_ID] = 0
+
+            if has_history_pixels:
+                pixels = history_pixel_values.to(
+                    device=inputs_embeds.device,
+                    dtype=next(vlm_model.vision_tower.parameters()).dtype,
+                )
+                image_features = vlm_model.get_image_features(
+                    pixels, return_dict=True
+                ).pooler_output
+
+                spatial = int(image_features.shape[1] ** 0.5)
+                hidden = image_features.shape[-1]
+                grid = image_features.view(-1, spatial, spatial, hidden).permute(
+                    0, 3, 1, 2
+                )
+                grid = F.adaptive_avg_pool2d(
+                    grid, output_size=(HISTORY_POOL_SIZE, HISTORY_POOL_SIZE)
+                )
+                image_features = grid.permute(0, 2, 3, 1).reshape(
+                    -1, HISTORY_POOL_SIZE * HISTORY_POOL_SIZE, hidden
+                )
+
+                history_mask_expanded = history_mask.unsqueeze(-1).expand_as(
+                    inputs_embeds
+                )
+                prefix_inputs_embeds = inputs_embeds.masked_scatter(
+                    history_mask_expanded, image_features
+                )
+            else:
+                prefix_inputs_embeds = inputs_embeds
+
+        prefix_attention_mask = mask_history_pad_tokens_in_attention(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+        prefix_position_ids = (prefix_attention_mask.cumsum(dim=-1) - 1).clamp_min_(0)
+        model_kwargs = {
+            "input_ids": None if prefix_inputs_embeds is not None else input_ids,
+            "attention_mask": prefix_attention_mask,
+            "position_ids": prefix_position_ids,
+            "past_key_values": kv_cache,
+            "inputs_embeds": prefix_inputs_embeds,
+            "pixel_values": pixel_values,
+            "token_type_ids": token_type_ids,
+            "use_cache": True,
+        }
+
+        self.model.vlm.model(**model_kwargs)
+        return kv_cache, kv_cache.get_seq_length()
 
     def _extract_prefix_cache_tensors(
         self,
@@ -951,8 +1038,11 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         device,
         input_ids: torch.Tensor,
         pad_token_id=0,
+        invisible_prefix_token_ids: tuple[int, ...] = (),
     ):
         valid_prefix = input_ids[:, :prefix_len] != pad_token_id  # [B, prefix_len]
+        for token_id in invisible_prefix_token_ids:
+            valid_prefix = valid_prefix & (input_ids[:, :prefix_len] != token_id)
         effective_prefix_len = valid_prefix.sum(dim=1)  # [B]
 
         # suffix position ids = [effective_prefix_len, effective_prefix_len+1, ...]

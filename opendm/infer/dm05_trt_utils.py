@@ -15,9 +15,96 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 
+from opendm.constants.robot import HISTORY_POOL_SIZE
+
 DEFAULT_DM05_VISION_TRT_ENGINE_PATH = "checkpoints/trt_engines/dm05_vision.engine"
+
+MAX_HISTORY_IMAGES = 5
+
+
+def pool_image_features_to_history(
+    image_features: torch.Tensor,
+    *,
+    pool_size: int = HISTORY_POOL_SIZE,
+) -> torch.Tensor:
+    """Pool projected soft tokens ``(N, T, H)`` to ``(N, pool_size**2, H)``.
+
+    Default ``pool_size`` is ``sqrt(HISTORY_TOKENS_PER_IMAGE)``.
+    """
+    tokens = int(image_features.shape[1])
+    spatial = int(tokens**0.5)
+    if spatial * spatial != tokens:
+        raise ValueError(
+            "image_features token count must be a perfect square for 2D pooling, "
+            f"got tokens={tokens}."
+        )
+    hidden = int(image_features.shape[-1])
+    grid = image_features.view(-1, spatial, spatial, hidden).permute(0, 3, 1, 2)
+    grid = F.adaptive_avg_pool2d(grid, output_size=(pool_size, pool_size))
+    return grid.permute(0, 2, 3, 1).reshape(-1, pool_size * pool_size, hidden)
+
+
+def pack_current_and_history_pixels(
+    current_pixel_values: torch.Tensor,
+    history_pixel_values: torch.Tensor | None = None,
+    *,
+    max_history: int | None = None,
+) -> tuple[torch.Tensor, int]:
+    """Pack current views + zero-padded history slots into a fixed TRT batch.
+
+    Returns ``(packed_pixels, num_real_history)``. Empty history slots are zero
+    images; callers must ignore the corresponding TRT feature rows.
+    """
+    if max_history is None:
+        max_history = MAX_HISTORY_IMAGES
+    if current_pixel_values.ndim != 4:
+        raise ValueError(
+            "current_pixel_values must be (N, C, H, W), got "
+            f"shape={tuple(current_pixel_values.shape)}."
+        )
+    num_current = int(current_pixel_values.shape[0])
+    if num_current <= 0:
+        raise ValueError("current_pixel_values must contain at least one image.")
+    if max_history < 0:
+        raise ValueError(f"max_history must be >= 0, got {max_history}.")
+
+    num_history = 0
+    if history_pixel_values is not None and int(history_pixel_values.shape[0]) > 0:
+        if history_pixel_values.ndim != 4:
+            raise ValueError(
+                "history_pixel_values must be (N, C, H, W), got "
+                f"shape={tuple(history_pixel_values.shape)}."
+            )
+        if tuple(history_pixel_values.shape[1:]) != tuple(
+            current_pixel_values.shape[1:]
+        ):
+            raise ValueError(
+                "history_pixel_values spatial/channel shape must match current "
+                f"views: current={tuple(current_pixel_values.shape[1:])}, "
+                f"history={tuple(history_pixel_values.shape[1:])}."
+            )
+        num_history = int(history_pixel_values.shape[0])
+        if num_history > max_history:
+            raise ValueError(
+                f"At most {max_history} history images are supported, got "
+                f"{num_history}."
+            )
+
+    packed = current_pixel_values.new_zeros(
+        (num_current + max_history, *current_pixel_values.shape[1:])
+    )
+    packed[:num_current].copy_(current_pixel_values)
+    if num_history > 0:
+        packed[num_current : num_current + num_history].copy_(
+            history_pixel_values.to(
+                device=current_pixel_values.device,
+                dtype=current_pixel_values.dtype,
+            )
+        )
+    return packed, num_history
 
 
 def load_tensorrt(context: str):

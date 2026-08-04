@@ -203,8 +203,9 @@ python -m opendm.infer.build_vision_trt \
   --num-images 2
 ```
 
-`--num-images` must equal the number of values passed through
-`--inference-config.image-prompts`.
+`--num-images` defaults to the number of `--inference-config.image-prompts`.
+With `--data-config.is-history`, use `len(image_prompts) + 5` (up to 5 history
+slots). For three current views plus history, use `--num-images 8`.
 
 ### Fast Backend Constraints
 
@@ -269,6 +270,10 @@ Request fields:
   be contiguous 1-based strings (`"1"`, `"2"`, …) and map **one-to-one in order**
   to `--inference-config.image-prompts` (e.g. `"1"` → first prompt such as
   `Head`, `"2"` → second such as `Left wrist`).
+- `observation.history_images`: optional JSON array of base64 history frames,
+  **oldest to newest**. Only valid when the service was started with
+  `--data-config.is-history`; omit or use `[]` when there is no history. See
+  [`tests/curl_history.sh`](../../tests/curl_history.sh) for a full request.
 - `observation.robot_type`: optional robot embodiment used for state/action
   semantics. Benchmark entry points inherit dataset defaults such as `Franka`
   and `Aloha RoboTwin2`; custom relative-action entries may need this field
@@ -294,11 +299,14 @@ milliseconds:
 }
 ```
 
-For the built-in demo checkpoint and its three-image request format, you can
-also run:
+For the built-in demo checkpoint you can also run:
 
 ```bash
+# No history (plain three-image request)
 bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+
+# With history_images (start the service with --data-config.is-history)
+bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
 ```
 
 ### Legacy `/process_frame` API
@@ -323,6 +331,8 @@ Legacy request fields:
   match the checkpoint's normalization statistics.
 - `image`: repeated image file field. The count and order must match
   `image_prompts` (e.g. Head, Left wrist, Right wrist).
+- `history_images`: optional repeated history frames (oldest to newest). Only
+  valid when the service was started with `--data-config.is-history`.
 - `robot_type`: optional robot embodiment used for state/action semantics.
   Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
   RoboTwin2`; custom relative-action entries may need this field explicitly.
@@ -353,6 +363,7 @@ A successful legacy response returns the historical shape:
 | `--inference-config.diffusion-steps` | Number of action diffusion steps; default `10`. |
 | `--inference-config.output-action-dim` | Returned action dimension; must match normalization statistics. |
 | `--inference-config.image-prompts` | Ordered camera labels, one-to-one with `observation.images` keys `"1"`, `"2"`, …. |
+| `--data-config.is-history` | Required to accept `history_images`; plain `curl_demo.sh` does not need it. |
 | `--inference-config.backend` | `default` or `fast`. |
 | `--inference-config.vision-trt-engine-path` | Checkpoint-specific TensorRT vision engine path; default `checkpoints/trt_engines/dm05_vision.engine`. |
 | `--inference-config.force-rebuild` | Rebuild the vision engine before fast inference. |
@@ -367,7 +378,7 @@ A successful legacy response returns the historical shape:
 | State or action dimension error | Match `observation.state` and `output_action_dim` to the normalization vectors. |
 | Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_prompts`. |
 | Fast backend fails during startup with import errors | In the active environment, reinstall `pip install -e ".[fast-infer]"` and verify `import tensorrt`, `import triton`, and `import torch.nn.attention.flex_attention`. |
-| TensorRT image-count mismatch | Rebuild the engine with `--num-images` equal to the number of image keys. |
+| TensorRT image-count mismatch | Rebuild with `--num-images` equal to `len(image_prompts)`; with history use `len(image_prompts) + 5`. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |
 | Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most 1024. |
 | Prefix exceeds 1024 tokens | Shorten the instruction or reduce `model_max_length`. |

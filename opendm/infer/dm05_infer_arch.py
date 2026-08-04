@@ -27,10 +27,16 @@ from transformers.models.gemma3.modeling_gemma3 import (
     token_type_ids_mask_function,
 )
 
-from opendm.model.dm05.dm05_arch import DM05ActionExpert, DM05ForConditionalGeneration
+from opendm.constants.robot import HISTORY_POOL_SIZE
+from opendm.model.dm05.dm05_arch import (
+    DM05ActionExpert,
+    DM05ForConditionalGeneration,
+)
 from opendm.model.dm05.dm05_utils import (
+    HISTORY_PAD_TOKEN_ID,
     fused_linear_euler_update,
     make_suffix_attn_mask,
+    mask_history_pad_tokens_in_attention,
     posemb_sincos,
 )
 
@@ -673,6 +679,56 @@ class DM05FastForCausalLM:
             inputs_embeds,
         )
 
+    def _zero_history_pad_embeds(
+        self,
+        input_ids: torch.LongTensor,
+        inputs_embeds: torch.Tensor,
+    ) -> torch.Tensor:
+        """Zero ``<unused1>`` positions (dexbotic 0525 invalid history slots).
+
+        Avoid host sync (``.item()`` / boolean indexing) so this stays valid
+        inside CUDA graph capture used by the fast prefix path.
+        """
+        mask = (input_ids == HISTORY_PAD_TOKEN_ID).unsqueeze(-1)
+        return inputs_embeds.masked_fill(mask, 0)
+
+    def _inject_history_into_embeds(
+        self,
+        *,
+        inputs_embeds: torch.Tensor,
+        history_mask: torch.BoolTensor | None,
+        history_features: torch.Tensor | None = None,
+        history_pixel_values: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if history_mask is None or not bool(history_mask.any().item()):
+            return inputs_embeds
+        if history_features is None:
+            if history_pixel_values is None or int(history_pixel_values.shape[0]) == 0:
+                return inputs_embeds
+            vlm_model = self.dm05.vlm.model
+            pixels = history_pixel_values.to(
+                device=inputs_embeds.device,
+                dtype=next(vlm_model.vision_tower.parameters()).dtype,
+            )
+            image_features = vlm_model.get_image_features(
+                pixels, return_dict=True
+            ).pooler_output
+            spatial = int(image_features.shape[1] ** 0.5)
+            hidden = image_features.shape[-1]
+            grid = image_features.view(-1, spatial, spatial, hidden).permute(0, 3, 1, 2)
+            grid = torch.nn.functional.adaptive_avg_pool2d(
+                grid, output_size=(HISTORY_POOL_SIZE, HISTORY_POOL_SIZE)
+            )
+            history_features = grid.permute(0, 2, 3, 1).reshape(
+                -1, HISTORY_POOL_SIZE * HISTORY_POOL_SIZE, hidden
+            )
+        history_features = history_features.to(
+            device=inputs_embeds.device,
+            dtype=inputs_embeds.dtype,
+        )
+        history_mask_expanded = history_mask.unsqueeze(-1).expand_as(inputs_embeds)
+        return inputs_embeds.masked_scatter(history_mask_expanded, history_features)
+
     def _prefix_fastpath_compute_cache_tensors_from_image_features(
         self,
         *,
@@ -682,6 +738,9 @@ class DM05FastForCausalLM:
         image_features: torch.Tensor,
         token_type_ids: torch.LongTensor,
         kv_cache: Cache,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
+        history_features: torch.Tensor | None = None,
     ) -> None:
         vlm_model = self.dm05.vlm.model
         image_token_id = int(vlm_model.config.image_token_id)
@@ -695,6 +754,13 @@ class DM05FastForCausalLM:
             llm_input_ids = input_ids
 
         inputs_embeds = vlm_model.get_input_embeddings()(llm_input_ids)
+        inputs_embeds = self._zero_history_pad_embeds(input_ids, inputs_embeds)
+        inputs_embeds = self._inject_history_into_embeds(
+            inputs_embeds=inputs_embeds,
+            history_mask=history_mask,
+            history_features=history_features,
+            history_pixel_values=history_pixel_values,
+        )
         inputs_embeds = self._merge_image_features_into_inputs_embeds(
             input_ids=input_ids,
             inputs_embeds=inputs_embeds,
@@ -733,11 +799,18 @@ class DM05FastForCausalLM:
         image_features: torch.Tensor,
         token_type_ids: torch.LongTensor,
         prefix_cache: Cache,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
+        history_features: torch.Tensor | None = None,
     ) -> tuple[Cache, int]:
         for layer in prefix_cache.layers:
             reset_for_prefill = getattr(layer, "reset_for_prefill", None)
             if reset_for_prefill is not None:
                 reset_for_prefill()
+        attention_mask = mask_history_pad_tokens_in_attention(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
         prefix_position_ids = (attention_mask.cumsum(dim=-1) - 1).clamp_min_(0)
         self._prefix_fastpath_compute_cache_tensors_from_image_features(
             input_ids=input_ids,
@@ -746,6 +819,9 @@ class DM05FastForCausalLM:
             image_features=image_features,
             token_type_ids=token_type_ids,
             kv_cache=prefix_cache,
+            history_pixel_values=history_pixel_values,
+            history_mask=history_mask,
+            history_features=history_features,
         )
         return prefix_cache, prefix_cache.get_seq_length()
 
@@ -759,6 +835,9 @@ class DM05FastForCausalLM:
         token_type_ids: torch.LongTensor,
         prefix_cache: Cache,
         prefix_buffers,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
+        history_features: torch.Tensor | None = None,
     ) -> tuple[Cache, int]:
         """Fill the prefix KV cache with the static decoder fastpath."""
         if not self.prefix_decoder_initialized:
@@ -789,6 +868,13 @@ class DM05FastForCausalLM:
             llm_input_ids = input_ids
 
         inputs_embeds = vlm_model.get_input_embeddings()(llm_input_ids).contiguous()
+        inputs_embeds = self._zero_history_pad_embeds(input_ids, inputs_embeds)
+        inputs_embeds = self._inject_history_into_embeds(
+            inputs_embeds=inputs_embeds,
+            history_mask=history_mask,
+            history_features=history_features,
+            history_pixel_values=history_pixel_values,
+        )
         image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
         bigkernel.launch_prefix_image_merge(
             input_ids,
@@ -921,6 +1007,7 @@ class DM05FastForCausalLM:
                 input_ids.device,
                 input_ids=input_ids,
                 pad_token_id=self.padding_idx,
+                invisible_prefix_token_ids=(HISTORY_PAD_TOKEN_ID,),
             )
             context = self.prepare_fast_suffix_context(
                 prefix_cache=prefix_cache,
@@ -984,6 +1071,7 @@ class DM05FastForCausalLM:
                 device=suffix_embeds.device,
                 dtype=suffix_embeds.dtype,
                 pad_token_id=self.padding_idx,
+                invisible_prefix_token_ids=(HISTORY_PAD_TOKEN_ID,),
             )
             suffix_position_ids = self._build_suffix_position_ids(
                 prefix_len,
@@ -991,6 +1079,7 @@ class DM05FastForCausalLM:
                 device,
                 input_ids=input_ids,
                 pad_token_id=self.padding_idx,
+                invisible_prefix_token_ids=(HISTORY_PAD_TOKEN_ID,),
             )
 
             suffix_out = self._suffix_forward(
@@ -1036,7 +1125,9 @@ class DM05FastForCausalLM:
     ) -> torch.Tensor:
         prefix_ids = input_ids[:, :prefix_len]
         valid_prefix = attention_mask[:, :prefix_len].to(torch.bool)
-        return (valid_prefix & (prefix_ids != self.padding_idx)).to(torch.int8)
+        valid_prefix = valid_prefix & (prefix_ids != self.padding_idx)
+        valid_prefix = valid_prefix & (prefix_ids != HISTORY_PAD_TOKEN_ID)
+        return valid_prefix.to(torch.int8)
 
     def prepare_fast_suffix_context(
         self,
@@ -1262,11 +1353,14 @@ class DM05FastForCausalLM:
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         pad_token_id=0,
+        invisible_prefix_token_ids: tuple[int, ...] = (),
     ):
         if attention_mask is not None:
             valid_prefix = attention_mask[:, :prefix_len].to(torch.bool)
         else:
             valid_prefix = input_ids[:, :prefix_len] != pad_token_id
+        for token_id in invisible_prefix_token_ids:
+            valid_prefix = valid_prefix & (input_ids[:, :prefix_len] != token_id)
         effective_prefix_len = valid_prefix.sum(dim=1)
         suffix_offsets = torch.arange(suffix_len, device=device).unsqueeze(0)
         return effective_prefix_len.unsqueeze(1) + suffix_offsets

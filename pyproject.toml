@@ -97,9 +97,9 @@ attention = [
     "flash_attn",
 ]
 fast-infer = [
-    "onnx",
+    "onnx==1.21.0",
     "triton==3.6.0",
-    "tensorrt",
+    "tensorrt==10.8.0.43",
 ]
 
 [tool.setuptools.packages.find]
