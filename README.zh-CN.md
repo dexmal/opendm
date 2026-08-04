@@ -176,6 +176,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -188,6 +189,7 @@ register_dataset(
 - `jsonl_dir`：训练数据的 `jsonl` 文件目录。
 - `image_dir`：图像文件目录。
 - `image_keys`：数据中需要读取的图像字段名。
+- `image_prompts`：与加载图像顺序对应的 prompt 标签（如 Head / Left wrist）。
 - `state_desc`：状态 / 动作各维度对应的机器人关节、夹爪等含义。
 
 训练启动时，如果对应的归一化参数文件不存在，脚本会根据当前数据集、action mode 和 chunk size 自动计算，并保存到 `./norm_stats/`。

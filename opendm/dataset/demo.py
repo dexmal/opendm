@@ -16,6 +16,7 @@ register_dataset(
             "jsonl_dir": "./assets/demo/",
             "image_dir": "./assets/demo/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": ALOHA_STATE_DESC,
         },
     },

@@ -124,6 +124,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     },
@@ -138,6 +139,7 @@ register_dataset(
 | `jsonl_dir` | OpenDM 会在其中递归扫描 episode JSONL 文件的目录。 |
 | `image_dir` | 解析媒体 `url` 时使用的基础目录。 |
 | `image_keys` | 按顺序从每帧加载的相机字段。 |
+| `image_prompts` | 必填。与 `image_keys` 一一对应的相机标签，写入 chat template（如 `Head`、`Left wrist`）。 |
 | `state_desc` | state 每个维度的语义类型；在 relative action 模式下，它也用于标识保持绝对值的维度。支持 `RobotStateDesc.JOINT`、`RobotStateDesc.EEF` 和 `RobotStateDesc.GRIPPER`。 |
 | `robot_type` | 可选机器人标签，通常使用 `RobotType` 中的值。 |
 

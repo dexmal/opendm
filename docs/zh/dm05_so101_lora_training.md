@@ -32,6 +32,7 @@ SO101 训练目标是 `so101_pick_cube`，注册位置为 `opendm/dataset/so101.
 | 图像根目录 | `./data/so101_pick_cube/image` |
 | Norm stats | 自动生成到 `./norm_stats/` |
 | 图像键 | `images_1`, `images_2` |
+| Image prompts | `Head`, `Left wrist` |
 | Action mode | `relative` |
 | State | 包含 (`add_state=True`) |
 | Action dim | 6 |

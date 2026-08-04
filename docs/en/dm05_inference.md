@@ -45,8 +45,8 @@ Before the first fast launch, confirm:
 - `python -c "import triton"` succeeds.
 - `python -c "import torch.nn.attention.flex_attention"` succeeds.
 - The checkpoint, playground entry point, `chunk_size`, action dimension, and
-  `image_keys` all come from the same training run.
-- The uploaded image count and order match `--inference-config.image-keys`.
+  `image_prompts` all come from the same training run.
+- The uploaded image count and order match `--inference-config.image-prompts`.
 - Extra time is reserved for the first startup to export ONNX and build the
   TensorRT engine before the HTTP service becomes ready.
 
@@ -85,7 +85,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./checkpoints/DM05-libero \
   --model-config.chunk-size 10 \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -110,7 +110,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./checkpoints/DM05-robotwin2-bf16 \
   --model-config.chunk-size 50 \
   --inference-config.output-action-dim 14 \
-  --inference-config.image-keys images_1 images_2 images_3 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
   --inference-config.port 7891
 ```
 
@@ -130,7 +130,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./user_checkpoints/dm05_sft_demo_smoke/checkpoint-10 \
   --model-config.chunk-size 50 \
   --inference-config.output-action-dim 14 \
-  --inference-config.image-keys images_1 images_2 images_3 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
   --inference-config.port 7891
 ```
 
@@ -150,7 +150,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ${TRAINING_OUTPUT_DIR}/checkpoint-50000 \
   --model-config.chunk-size 10 \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -182,7 +182,7 @@ script/dm05_launcher.sh \
   --model-config.chunk-size 10 \
   --inference-config.backend fast \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -204,7 +204,7 @@ python -m opendm.infer.build_vision_trt \
 ```
 
 `--num-images` must equal the number of values passed through
-`--inference-config.image-keys`.
+`--inference-config.image-prompts`.
 
 ### Fast Backend Constraints
 
@@ -266,8 +266,9 @@ Request fields:
 - `observation.state`: required one-dimensional JSON array. Its length and
   ordering must match the checkpoint's normalization statistics.
 - `observation.images`: required JSON object of base64-encoded images. Keys must
-  be contiguous 1-based strings such as `"1"`, `"2"`, `"3"`, and the order must
-  match `image_keys`.
+  be contiguous 1-based strings (`"1"`, `"2"`, …) and map **one-to-one in order**
+  to `--inference-config.image-prompts` (e.g. `"1"` → first prompt such as
+  `Head`, `"2"` → second such as `Left wrist`).
 - `observation.robot_type`: optional robot embodiment used for state/action
   semantics. Benchmark entry points inherit dataset defaults such as `Franka`
   and `Aloha RoboTwin2`; custom relative-action entries may need this field
@@ -303,7 +304,8 @@ bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
 ### Legacy `/process_frame` API
 
 The legacy compatibility endpoint accepts `multipart/form-data` with repeated
-`image` file fields.
+`image` file fields. Prefer `/v1/infer` JSON for new clients; legacy uses repeated
+form fields instead of `"1"` / `"2"` keys.
 
 ```bash
 curl -X POST http://127.0.0.1:7891/process_frame \
@@ -320,7 +322,7 @@ Legacy request fields:
 - `states`: required one-dimensional JSON array. Its length and ordering must
   match the checkpoint's normalization statistics.
 - `image`: repeated image file field. The count and order must match
-  `image_keys`.
+  `image_prompts` (e.g. Head, Left wrist, Right wrist).
 - `robot_type`: optional robot embodiment used for state/action semantics.
   Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
   RoboTwin2`; custom relative-action entries may need this field explicitly.
@@ -350,7 +352,7 @@ A successful legacy response returns the historical shape:
 | `--trainer-config.model-max-length` | Maximum tokenized multimodal prefix length. |
 | `--inference-config.diffusion-steps` | Number of action diffusion steps; default `10`. |
 | `--inference-config.output-action-dim` | Returned action dimension; must match normalization statistics. |
-| `--inference-config.image-keys` | Ordered image inputs expected by the service. |
+| `--inference-config.image-prompts` | Ordered camera labels, one-to-one with `observation.images` keys `"1"`, `"2"`, …. |
 | `--inference-config.backend` | `default` or `fast`. |
 | `--inference-config.vision-trt-engine-path` | Checkpoint-specific TensorRT vision engine path; default `checkpoints/trt_engines/dm05_vision.engine`. |
 | `--inference-config.force-rebuild` | Rebuild the vision engine before fast inference. |
@@ -363,7 +365,7 @@ A successful legacy response returns the historical shape:
 | --- | --- |
 | Missing or mismatched normalization statistics | Use the checkpoint's `norm_stats.json` and the same dataset/action/chunk configuration as training. |
 | State or action dimension error | Match `observation.state` and `output_action_dim` to the normalization vectors. |
-| Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_keys`. |
+| Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_prompts`. |
 | Fast backend fails during startup with import errors | In the active environment, reinstall `pip install -e ".[fast-infer]"` and verify `import tensorrt`, `import triton`, and `import torch.nn.attention.flex_attention`. |
 | TensorRT image-count mismatch | Rebuild the engine with `--num-images` equal to the number of image keys. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |

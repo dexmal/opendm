@@ -114,6 +114,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -137,6 +138,7 @@ script/dm05_launcher.sh \
 
 - `dataset_name`: your registered dataset name.
 - `image_keys`: image fields in the JSONL data.
+- `image_prompts`: prompt labels zipped with loaded images in order.
 - `state_desc`: dimension order of `state` and `action`.
 - `output_action_dim`: last dimension of the predicted action.
 - `chunk_size`: action horizon for your controller. If unsure, start with the default `50`.

@@ -114,6 +114,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -137,6 +138,7 @@ script/dm05_launcher.sh \
 
 - `dataset_name`：改成自己注册的数据集名称。
 - `image_keys`：和 JSONL 中的图像字段一致。
+- `image_prompts`：与加载图像顺序对应的 prompt 标签。
 - `state_desc`：和 `state` / `action` 的维度顺序一致。
 - `output_action_dim`：和模型输出 action 的最后一维一致。
 - `chunk_size`：根据实际控制 horizon 设置；如果不确定，先保持默认 `50`。

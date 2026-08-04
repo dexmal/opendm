@@ -39,8 +39,8 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 - `python -c "import tensorrt"` 可以成功执行。
 - `python -c "import triton"` 可以成功执行。
 - `python -c "import torch.nn.attention.flex_attention"` 可以成功执行。
-- checkpoint、playground 入口、`chunk_size`、action 维度和 `image_keys` 来自同一轮训练。
-- 上传图片的数量和顺序与 `--inference-config.image-keys` 完全一致。
+- checkpoint、playground 入口、`chunk_size`、action 维度和 `image_prompts` 来自同一轮训练。
+- 上传图片的数量和顺序与 `--inference-config.image-prompts` 完全一致。
 - 为第一次启动预留额外时间，因为服务会先导出 ONNX 并构建 TensorRT engine，之后 HTTP
   服务才会就绪。
 
@@ -78,7 +78,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./checkpoints/DM05-libero \
   --model-config.chunk-size 10 \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -102,7 +102,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./checkpoints/DM05-robotwin2-bf16 \
   --model-config.chunk-size 50 \
   --inference-config.output-action-dim 14 \
-  --inference-config.image-keys images_1 images_2 images_3 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
   --inference-config.port 7891
 ```
 
@@ -120,7 +120,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ./user_checkpoints/dm05_sft_demo_smoke/checkpoint-10 \
   --model-config.chunk-size 50 \
   --inference-config.output-action-dim 14 \
-  --inference-config.image-keys images_1 images_2 images_3 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
   --inference-config.port 7891
 ```
 
@@ -139,7 +139,7 @@ script/dm05_launcher.sh \
   --model-config.model-name-or-path ${TRAINING_OUTPUT_DIR}/checkpoint-50000 \
   --model-config.chunk-size 10 \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -170,7 +170,7 @@ script/dm05_launcher.sh \
   --model-config.chunk-size 10 \
   --inference-config.backend fast \
   --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
+  --inference-config.image-prompts "Head" "Left wrist" \
   --inference-config.port 7891
 ```
 
@@ -190,7 +190,7 @@ python -m opendm.infer.build_vision_trt \
   --num-images 2
 ```
 
-`--num-images` 必须等于 `--inference-config.image-keys` 的数量。
+`--num-images` 必须等于 `--inference-config.image-prompts` 的数量。
 
 ### Fast Backend 约束
 
@@ -247,7 +247,8 @@ EOF
 - `observation.prompt`：任务指令，默认是空字符串。
 - `observation.state`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
 - `observation.images`：必填 JSON 对象，值为 base64 编码图片。键名必须是连续的 1-based
-  字符串，例如 `"1"`、`"2"`、`"3"`，顺序必须与 `image_keys` 一致。
+  字符串（`"1"`、`"2"`、…），并与 `--inference-config.image-prompts` **按顺序一一对应**：
+  例如 `"1"` → 第 1 个 prompt（如 `Head`），`"2"` → 第 2 个（如 `Left wrist`）。
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
   继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
 - `observation.control_mode` 和 `observation.speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；
@@ -278,6 +279,7 @@ bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
 ### Legacy `/process_frame` 接口
 
 兼容接口接收 `multipart/form-data`，并通过重复的 `image` 文件字段上传图片。
+新接入请优先用上面的 `/v1/infer` JSON；legacy 用重复表单字段，而不是 `"1"`/`"2"` 键。
 
 ```bash
 curl -X POST http://127.0.0.1:7891/process_frame \
@@ -292,7 +294,7 @@ Legacy 请求字段：
 
 - `text`：任务指令，默认是空字符串。
 - `states`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
-- `image`：可重复的图片字段，数量和顺序必须与 `image_keys` 一致。
+- `image`：可重复的图片字段，数量和顺序必须与 `image_prompts` 一致（如 Head、Left wrist、Right wrist）。
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
   例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
 - `control_mode` 和 `speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；如果 checkpoint
@@ -320,7 +322,7 @@ Legacy 成功响应保持历史格式：
 | `--trainer-config.model-max-length` | Tokenized multimodal prefix 最大长度。 |
 | `--inference-config.diffusion-steps` | Action diffusion steps，默认值为 `10`。 |
 | `--inference-config.output-action-dim` | 返回的 action 维度，必须与归一化统计一致。 |
-| `--inference-config.image-keys` | 服务期望的有序图片输入。 |
+| `--inference-config.image-prompts` | 有序相机标签，与 `observation.images` 的 `"1"`、`"2"`、… 一一对应。 |
 | `--inference-config.backend` | `default` 或 `fast`。 |
 | `--inference-config.vision-trt-engine-path` | 当前 checkpoint 专用的 TensorRT vision engine 路径；默认值为 `checkpoints/trt_engines/dm05_vision.engine`。 |
 | `--inference-config.force-rebuild` | Fast 推理前重新构建 vision engine。 |
@@ -333,7 +335,7 @@ Legacy 成功响应保持历史格式：
 | --- | --- |
 | 找不到归一化统计或统计不匹配 | 使用 checkpoint 的 `norm_stats.json`，并保持 dataset/action/chunk 配置与训练一致。 |
 | State 或 action 维度错误 | 让 `observation.state` 和 `output_action_dim` 与归一化向量维度一致。 |
-| 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_keys` 一致。 |
+| 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_prompts` 一致。 |
 | Fast 启动阶段出现 import 错误 | 在当前环境重新执行 `pip install -e ".[fast-infer]"`，并检查 `import tensorrt`、`import triton`、`import torch.nn.attention.flex_attention` 是否成功。 |
 | TensorRT 图片数量不匹配 | 使用与 image keys 数量相同的 `--num-images` 重建 engine。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |

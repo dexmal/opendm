@@ -184,6 +184,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -196,6 +197,7 @@ Field descriptions:
 - `jsonl_dir`: directory containing training `jsonl` files.
 - `image_dir`: directory containing image files.
 - `image_keys`: image field names to load from the dataset.
+- `image_prompts`: prompt labels zipped with loaded images in order (e.g. Head / Left wrist).
 - `state_desc`: semantic description of each state/action dimension, such as robot joints and grippers.
 
 During training, if the corresponding normalization statistics file does not exist, the script automatically computes it from the current dataset, action mode, and chunk size, then saves it under `./norm_stats/`.

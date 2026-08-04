@@ -47,29 +47,27 @@ class Pipeline:
 
 
 class PixelTransform:
-    """Apply an image augmentation pipeline to selected image fields.
+    """Apply an image augmentation pipeline to ``data["images"]`` in list order.
 
     Args:
         transform_pipeline: Albumentations-style pipeline that accepts an
             ``image`` keyword and returns a mapping containing ``"image"``.
-        image_keys: Keys whose PIL images should be converted to NumPy arrays,
-            transformed, and converted back to RGB PIL images.
     """
 
-    def __init__(
-        self,
-        transform_pipeline: TransformPipeline,
-        image_keys: list[str] | None = None,
-    ):
-        self.image_keys = image_keys
+    def __init__(self, transform_pipeline: TransformPipeline):
         self.transform_pipeline = transform_pipeline
 
+    def _transform_images(self, images):
+        return [
+            Image.fromarray(
+                self.transform_pipeline(image=np.array(image))["image"],
+                mode="RGB",
+            )
+            for image in images
+        ]
+
     def __call__(self, data):
-        for key in self.image_keys:
-            image = data[key]
-            np_image = np.array(image)
-            np_image = self.transform_pipeline(image=np_image)["image"]
-            data[key] = Image.fromarray(np_image, mode="RGB")
+        data["images"] = self._transform_images(data["images"])
         return data
 
 
@@ -160,6 +158,9 @@ class Denormalize:
 class LoadImages:
     """Load image-like sample entries from image files or video frames.
 
+    Reads JSONL fields named by ``image_keys`` in order and stores the loaded
+    PIL images as ``data["images"]`` for downstream list-order processing.
+
     Args:
         image_keys: Keys whose values are metadata dictionaries with ``url``,
             ``type``, and optionally ``frame_idx`` fields.
@@ -174,15 +175,17 @@ class LoadImages:
         self.image_dir = image_dir
 
     def __call__(self, data):
+        images = []
         for key in self.image_keys:
             image_url = os.path.join(self.image_dir, data[key]["url"].lstrip("./"))
             image_type = data[key]["type"]
             if image_type == "image":
-                data[key] = _load_image(image_url)
+                images.append(_load_image(image_url))
             elif image_type == "video":
-                data[key] = _load_video(image_url, data[key]["frame_idx"])
+                images.append(_load_video(image_url, data[key]["frame_idx"]))
             else:
                 raise ValueError(f"Invalid image type: {image_type}")
+        data["images"] = images
         return data
 
 
@@ -445,17 +448,16 @@ class ActionAbsolute:
 class ChatTokenization:
     """Tokenize a multimodal robot sample with a chat template.
 
-    The transform builds a user message containing the task prompt, selected
-    images, and optionally the binned robot state. It returns model-ready tensor
-    fields together with the action tensor when an action is present.
+    Current-view images are interleaved via the processor chat template.
 
     Args:
         processor: Multimodal processor or tokenizer-compatible object with
             ``apply_chat_template``.
         n_bins: Number of bins used when discretizing normalized state values.
         max_length: Maximum token length. Long prompts are shortened to fit.
-        image_keys: Keys containing PIL images to include in the chat message.
+        image_prompts: Prompt labels zipped with ``data["images"]`` in order.
         add_state: Whether to append a discretized state text field.
+        enable_logging: Whether to log the decoded tokenized prompt.
     """
 
     def __init__(
@@ -463,7 +465,7 @@ class ChatTokenization:
         processor,
         n_bins: int = 256,
         max_length: int | None = 1024,
-        image_keys: list[str] | None = None,
+        image_prompts: list[str] | None = None,
         add_state: bool = True,
         enable_logging: bool = False,
     ):
@@ -473,7 +475,7 @@ class ChatTokenization:
         )
         self.n_bins = n_bins
         self.max_length = max_length
-        self.image_keys = image_keys
+        self.image_prompts = image_prompts or []
         self.add_state = add_state
         self.enable_logging = enable_logging
 
@@ -494,12 +496,6 @@ class ChatTokenization:
         return np.clip(bins, 0, n_bins - 1).tolist()
 
     def __call__(self, data):
-        # TODO: Make image labels adapt to arbitrary image keys.
-        image_labels = {
-            "images_1": "Head image: ",
-            "images_2": "Left wrist image: ",
-            "images_3": "Right wrist image: ",
-        }
         meta = data.get("meta_data", {})
         text_parts = []
         if meta.get("robot_type") is not None:
@@ -513,13 +509,14 @@ class ChatTokenization:
         text_parts.append(f"Overall speed: {speed}\n")
         text_parts.append(f"Task: {data['prompt']}.\n")
         user_content = [{"type": "text", "text": "".join(text_parts)}]
-        for key in self.image_keys:
-            image_label = image_labels.get(key, f"{key}: ")
+
+        for prompt, image in zip(self.image_prompts, data["images"], strict=True):
+            label = f"{prompt} image: "
             if user_content[-1]["type"] == "text":
-                user_content[-1]["text"] += image_label
+                user_content[-1]["text"] += label
             else:
-                user_content.append({"type": "text", "text": image_label})
-            user_content.append({"type": "image", "image": data[key]})
+                user_content.append({"type": "text", "text": label})
+            user_content.append({"type": "image", "image": image})
         if self.add_state:
             user_content.append(
                 {

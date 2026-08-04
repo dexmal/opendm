@@ -50,13 +50,13 @@ class DM05DataConfig(_DM05DataConfig):
     ) -> tuple:
         dataset_info = self._dataset_info()
         image_keys = dataset_info["image_keys"]
+        image_prompts = dataset_info["image_prompts"]
         pipeline = Pipeline(
             [
                 self._action_transform(action_horizon),
                 LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
                 PixelTransform(
                     transform_pipeline=NoAugmentationPipeline(),
-                    image_keys=image_keys,
                 ),
                 Normalize(
                     norm_stats_path=str(self.norm_stats_path(action_horizon)),
@@ -67,7 +67,7 @@ class DM05DataConfig(_DM05DataConfig):
                     processor=processor,
                     n_bins=self.n_bins,
                     max_length=tokenizer_max_length,
-                    image_keys=image_keys,
+                    image_prompts=image_prompts,
                     add_state=self.add_state,
                 ),
                 PadAction(32),
@@ -127,7 +127,7 @@ class DM05TrainerConfig(_DM05TrainerConfig):
 @dataclass
 class DM05InferenceConfig(_DM05InferenceConfig):
     output_action_dim: int = field(default=6)
-    image_keys: list[str] = field(default_factory=lambda: ["images_1", "images_2"])
+    image_prompts: list[str] = field(default_factory=lambda: ["Head", "Left wrist"])
 
 
 @dataclass

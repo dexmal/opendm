@@ -36,6 +36,7 @@ The SO101 training target is `so101_pick_cube`, registered in
 | Image root | `./data/so101_pick_cube/image` |
 | Norm stats | Auto-generated under `./norm_stats/` |
 | Image keys | `images_1`, `images_2` |
+| Image prompts | `Head`, `Left wrist` |
 | Action mode | `relative` |
 | State | Included (`add_state=True`) |
 | Action dim | 6 |

@@ -45,8 +45,8 @@ class DM05TrainerConfig(_DM05TrainerConfig):
 @dataclass
 class DM05InferenceConfig(_DM05InferenceConfig):
     output_action_dim: int = field(default=14)
-    image_keys: list[str] = field(
-        default_factory=lambda: ["images_1", "images_2", "images_3"]
+    image_prompts: list[str] = field(
+        default_factory=lambda: ["Head", "Left wrist", "Right wrist"]
     )
 
 

@@ -132,6 +132,7 @@ register_dataset(
             "jsonl_dir": "./assets/my_robot/",
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
+            "image_prompts": ["Head", "Left wrist", "Right wrist"],
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     },
@@ -146,6 +147,7 @@ register_dataset(
 | `jsonl_dir` | Directory recursively containing episode JSONL files. |
 | `image_dir` | Base directory used to resolve media `url` values. |
 | `image_keys` | Ordered camera fields to load from every frame. |
+| `image_prompts` | Required. Camera labels one-to-one with `image_keys` for the chat template (e.g. `Head`, `Left wrist`). |
 | `state_desc` | Semantic type of each state dimension. It also identifies dimensions that remain absolute in relative action mode. Supported values are `RobotStateDesc.JOINT`, `RobotStateDesc.EEF`, and `RobotStateDesc.GRIPPER`. |
 | `robot_type` | Optional robot label, normally one of the values in `RobotType`. |
 

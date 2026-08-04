@@ -261,6 +261,7 @@ class DM05DataConfig(Config):
                 "jsonl_dir",
                 "image_dir",
                 "image_keys",
+                "image_prompts",
             )
         }
 
@@ -287,13 +288,13 @@ class DM05DataConfig(Config):
     ) -> tuple:
         dataset_info = self._dataset_info()
         image_keys = dataset_info["image_keys"]
+        image_prompts = dataset_info["image_prompts"]
         pipeline = Pipeline(
             [
                 self._action_transform(action_horizon),
                 LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
                 PixelTransform(
                     transform_pipeline=TrainingTransformPipeline(p=0.5),
-                    image_keys=image_keys,
                 ),
                 Normalize(
                     norm_stats_path=str(self.norm_stats_path(action_horizon)),
@@ -304,7 +305,7 @@ class DM05DataConfig(Config):
                     processor=processor,
                     n_bins=self.n_bins,
                     max_length=tokenizer_max_length,
-                    image_keys=image_keys,
+                    image_prompts=image_prompts,
                     add_state=self.add_state,
                 ),
                 PadAction(32),
@@ -380,8 +381,8 @@ class DM05InferenceConfig(Config):
     port: int = field(default=7891)
     diffusion_steps: int = field(default=10)
     output_action_dim: int = field(default=14)
-    image_keys: list[str] = field(
-        default_factory=lambda: ["images_1", "images_2", "images_3"]
+    image_prompts: list[str] = field(
+        default_factory=lambda: ["Head", "Left wrist", "Right wrist"]
     )
     backend: Literal["default", "fast"] = field(default="default")
     vision_trt_engine_path: str | None = field(default=None)
@@ -395,10 +396,6 @@ class DM05InferenceConfig(Config):
             if values is not None:
                 return int(np.asarray(values).size)
         raise ValueError(f"Cannot infer normalization dimension for {field_name!r}.")
-
-    @staticmethod
-    def _supported_robot_types() -> list[str]:
-        return [robot_type.value for robot_type in ROBOT_STATE_DESCS]
 
     def _request_default_overrides(self) -> dict:
         return {}
@@ -446,7 +443,7 @@ class DM05InferenceConfig(Config):
             engine_path = ensure_dm05_fast_inference_engine(
                 checkpoint=model_name_or_path,
                 engine_path=self.vision_trt_engine_path,
-                num_images=len(self.image_keys),
+                num_images=len(self.image_prompts),
                 force_rebuild=self.force_rebuild,
             )
             self.vision_trt_engine_path = str(engine_path)
@@ -511,14 +508,13 @@ class DM05InferenceConfig(Config):
             [
                 PixelTransform(
                     transform_pipeline=NoAugmentationPipeline(),
-                    image_keys=self.image_keys,
                 ),
                 input_normalize,
                 ChatTokenization(
                     processor=self.processor,
                     n_bins=n_bins,
                     max_length=transform_max_length,
-                    image_keys=self.image_keys,
+                    image_prompts=self.image_prompts,
                     add_state=add_state,
                     enable_logging=False,
                 ),
@@ -619,10 +615,10 @@ class DM05InferenceConfig(Config):
         speed: str | None = None,
         control_mode: str | None = None,
     ) -> dict:
-        if len(images) != len(self.image_keys):
+        if len(images) != len(self.image_prompts):
             raise ValueError(
-                f"Expected {len(self.image_keys)} images for "
-                f"image_keys={self.image_keys!r}, got {len(images)}."
+                f"Expected {len(self.image_prompts)} images for "
+                f"image_prompts={self.image_prompts!r}, got {len(images)}."
             )
 
         robot_type = (
@@ -645,14 +641,13 @@ class DM05InferenceConfig(Config):
                 "registration provides state_desc for absolute-action reconstruction."
             )
 
-        pil_images = {
-            self.image_keys[i]: self._load_image(img, f"image[{i}]")
-            for i, img in enumerate(images)
-        }
+        pil_images = [
+            self._load_image(img, f"image[{i}]") for i, img in enumerate(images)
+        ]
         state = self._parse_state(states)
 
         return {
-            **pil_images,
+            "images": pil_images,
             "prompt": "" if text is None else str(text),
             "state": state,
             "meta_data": {
