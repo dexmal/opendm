@@ -144,45 +144,9 @@ script/dm05_launcher.sh \
 
 Make sure `image_keys`, `state_desc`, action dimension, and `chunk_size` stay consistent between training and inference.
 
-## 6. Start Inference
+## 6. Inference
 
-Use the checkpoint produced by training. For step checkpoints, pass the checkpoint directory:
-
-```bash
-script/dm05_launcher.sh \
-  --exp playground/dm05_sft_demo.py \
-  --nproc_per_node 1 \
-  --task inference \
-  --data-config.dataset-name demo \
-  --model-config.model-name-or-path ./user_checkpoints/dm05_sft_demo_smoke/checkpoint-10 \
-  --inference-config.output-action-dim 14 \
-  --inference-config.port 7891
-```
-
-For your own robot, use the same dataset name, chunk size, image keys, and action dimension used during training.
-
-## 7. Validate the Service
-
-With the inference service running, send a demo request:
-
-```bash
-bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
-```
-
-`tests/curl_demo.sh` is only for the built-in demo data and compatible 3-image, 14-dim state/action setups. It is useful for checking that a demo checkpoint service responds correctly. For custom data, copy this script and replace the instruction, state, image paths, image count, and `robot_type` when needed, or write your own evaluation client.
-
-A valid response looks like:
-
-```json
-{
-  "response": [
-    [0.01, -0.02, "..."],
-    [0.02, -0.01, "..."]
-  ]
-}
-```
-
-For your own robot evaluation, post the current instruction, state, and images to `/process_frame`, execute the returned action chunk for your control horizon, then replan from the next observation.
+See the [DM05 Inference Guide](dm05_inference.md) for the custom SFT checkpoint command, service validation, HTTP API usage, and fast backend setup.
 
 ## Checklist
 

@@ -109,45 +109,7 @@ script/dm05_launcher.sh \
 
 ## RoboTwin 2.0 推理
 
-### 启动推理服务
-
-从 Hugging Face 下载 [Dexmal/DM05-robotwin2](https://huggingface.co/Dexmal/DM05-robotwin2)
-checkpoint：
-
-```bash
-hf download Dexmal/DM05-robotwin2 \
-  --local-dir checkpoints/DM05-robotwin2-bf16
-```
-
-checkpoint 中必须包含与 RoboTwin 2.0 训练配置匹配的 `norm_stats.json`。
-在 OpenDM 仓库根目录运行：
-
-```bash
-script/dm05_launcher.sh \
-  --exp playground/dm05_robotwin2.py \
-  --task inference \
-  --nproc_per_node 1 \
-  --model-config.model-name-or-path ./checkpoints/DM05-robotwin2-bf16 \
-  --model-config.chunk-size 50 \
-  --inference-config.output-action-dim 14 \
-  --inference-config.image-keys images_1 images_2 images_3 \
-  --inference-config.port 7891
-```
-
-参数说明：
-
-- `--exp playground/dm05_robotwin2.py`：使用与训练阶段相同的 RoboTwin 2.0 入口。
-- `--task inference`：启动 HTTP 推理服务。
-- `--nproc_per_node 1`：推理使用 1 卡即可。
-- `--model-config.model-name-or-path`：已发布或本地训练得到的 RoboTwin 2.0 checkpoint 路径。
-- `--model-config.chunk-size 50`：需要与训练配置以及 benchmark 的
-  `action_horizon` 保持一致。
-- `--inference-config.output-action-dim 14`：两个 ALOHA 机械臂各包含 6 个关节和 1 个夹爪值。
-- `--inference-config.image-keys images_1 images_2 images_3`：三路图像输入，顺序需要与
-  benchmark 的 `cameras` 配置一致。
-- `--inference-config.port 7891`：HTTP 服务端口。
-
-benchmark 评测期间需要保持推理服务运行。
+发布版 RoboTwin 2.0 checkpoint、完整服务命令、fast backend 配置和 HTTP API 使用方法统一参考 [DM05 推理指南](dm05_inference.md)。
 
 ## RoboTwin 2.0 评测
 

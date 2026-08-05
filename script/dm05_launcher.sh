@@ -37,6 +37,14 @@ while [[ "$#" -gt 0 ]]; do
             MASTER_PORT="$2"
             shift 2
             ;;
+        --force-rebuild)
+            EXP_ARGS+=("--inference-config.force-rebuild")
+            shift
+            ;;
+        --no-force-rebuild)
+            EXP_ARGS+=("--inference-config.no-force-rebuild")
+            shift
+            ;;
         --)
             shift
             EXP_ARGS+=("$@")

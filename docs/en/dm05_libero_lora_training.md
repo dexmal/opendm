@@ -164,25 +164,6 @@ by default. Check it before trusting a run:
 - The dense saved modules should include action projections, time MLPs, and
   expanded time modulators.
 
-## Checkpoints and Inference
+## Checkpoints
 
-Step checkpoints are the canonical artifacts for multi-GPU LoRA/FSDP training.
-For inference, pass the LoRA checkpoint path as `--model-config.model-name-or-path`;
-the loader reads `adapter_config.json`, loads the recorded base model, and merges
-the adapter for inference.
-
-Use the checkpoint path produced by your training run. For example, if the
-training output directory is `${TRAINING_OUTPUT_DIR}`, use a checkpoint such as
-`${TRAINING_OUTPUT_DIR}/checkpoint-50000`.
-
-```bash
-script/dm05_launcher.sh \
-  --exp playground/dm05_libero_lora.py \
-  --task inference \
-  --nproc_per_node 1 \
-  --model-config.model-name-or-path ${TRAINING_OUTPUT_DIR}/checkpoint-50000 \
-  --model-config.chunk-size 10 \
-  --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
-  --inference-config.port 7891
-```
+Step checkpoints are the canonical artifacts for multi-GPU LoRA/FSDP training. See the [DM05 Inference Guide](dm05_inference.md) for adapter loading behavior and the complete LIBERO LoRA service command.

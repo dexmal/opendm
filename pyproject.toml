@@ -96,6 +96,11 @@ dependencies = [
 attention = [
     "flash_attn",
 ]
+fast-infer = [
+    "onnx",
+    "triton==3.6.0",
+    "tensorrt",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

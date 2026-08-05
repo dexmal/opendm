@@ -14,12 +14,12 @@ class JsonlDataset(Dataset):
         jsonl_dir: str,
         transforms=None,
         dataset_name: str | None = None,
-        dataset_meta: dict = {},
+        dataset_meta: dict | None = None,
     ):
         self.jsonl_dir = jsonl_dir
         self.transforms = transforms
         self.dataset_name = dataset_name
-        self.dataset_meta = dataset_meta
+        self.dataset_meta = {} if dataset_meta is None else dataset_meta
         self._build_index()
 
     def _build_index(self):
@@ -65,14 +65,14 @@ class JsonlDataset(Dataset):
 
 def _read_jsonl_lines(file_path: str) -> list[str]:
     try:
-        return open(file_path, "r").readlines()
+        return open(file_path).readlines()
     except Exception:
         return megfile.smart_open(file_path, "r").readlines()
 
 
 def _load_jsonl(file_path: str) -> list:
     try:
-        f = open(file_path, "r").readlines()
+        f = open(file_path).readlines()
     except Exception:
         f = megfile.smart_open(file_path, "r").readlines()
     return [line for line in f if line.strip()]

@@ -23,6 +23,35 @@ except ImportError:
 from transformers.models.gemma3.modeling_gemma3 import Gemma3DecoderLayer
 
 
+def fused_linear_euler_update(
+    *,
+    hidden_states: torch.Tensor,
+    current: torch.Tensor,
+    linear: torch.nn.Linear,
+    dt: float,
+) -> torch.Tensor:
+    """Apply ``current + dt * linear(hidden_states)`` with one flattened addmm."""
+
+    batch_size, seq_len, _ = hidden_states.shape
+    action_dim = int(current.shape[-1])
+    hidden_flat = hidden_states.reshape(batch_size * seq_len, -1)
+    current_flat = current.reshape(batch_size * seq_len, action_dim)
+
+    updated = torch.addmm(
+        current_flat,
+        hidden_flat,
+        linear.weight.transpose(0, 1),
+        beta=1.0,
+        alpha=float(dt),
+    )
+    if linear.bias is not None:
+        updated = updated + linear.bias.to(
+            dtype=updated.dtype,
+            device=updated.device,
+        ) * float(dt)
+    return updated.view_as(current)
+
+
 def is_flash_attention_2_available() -> bool:
     if not torch.cuda.is_available():
         return False

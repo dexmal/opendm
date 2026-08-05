@@ -144,45 +144,9 @@ script/dm05_launcher.sh \
 
 需要确保 `image_keys`、`state_desc`、action 维度和 `chunk_size` 在训练和推理阶段保持一致。
 
-## 6. 启动推理服务
+## 6. 推理
 
-使用训练得到的 checkpoint。对于 step checkpoint，直接传入 checkpoint 目录：
-
-```bash
-script/dm05_launcher.sh \
-  --exp playground/dm05_sft_demo.py \
-  --nproc_per_node 1 \
-  --task inference \
-  --data-config.dataset-name demo \
-  --model-config.model-name-or-path ./user_checkpoints/dm05_sft_demo_smoke/checkpoint-10 \
-  --inference-config.output-action-dim 14 \
-  --inference-config.port 7891
-```
-
-使用自己的机器人时，需要保持训练和推理的数据集名称、chunk size、image keys 和 action 维度一致。
-
-## 7. 验证服务
-
-推理服务启动后，发送 demo 请求：
-
-```bash
-bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
-```
-
-`tests/curl_demo.sh` 只适用于内置 demo 数据和兼容的 3 图像、14 维 state/action 配置。它可以用来验证 demo checkpoint 的服务是否正常。如果使用自己的数据，通常需要复制这个脚本并替换 instruction、state、图片路径、图片数量以及必要的 `robot_type`，或者编写自己的评测客户端。
-
-正常返回格式如下：
-
-```json
-{
-  "response": [
-    [0.01, -0.02, "..."],
-    [0.02, -0.01, "..."]
-  ]
-}
-```
-
-如果要在自己的机器人或评测环境中验证，可以向 `/process_frame` POST 当前 instruction、state 和 images，执行返回的 action chunk，然后从下一帧观测重新规划。
+自定义 SFT checkpoint 的服务命令、服务验证、HTTP API 和 fast backend 配置统一参考 [DM05 推理指南](dm05_inference.md)。
 
 ## 检查清单
 

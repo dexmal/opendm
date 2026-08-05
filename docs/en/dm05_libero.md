@@ -95,45 +95,14 @@ Arguments:
 
 ## LIBERO Inference
 
-**After completing environment installation and source initialization**, you can start a model inference service with the DM05 LIBERO checkpoint trained in the previous step.
-
-### Prerequisites
-
-Before inference, make sure **OpenDM environment installation and source initialization have been completed according to the official steps.**
-
-### Start Inference
-
-- Inference first reads `norm_stats.json` from the model checkpoint directory. Make sure the checkpoint comes from a LIBERO training workflow that matches the current inference configuration.
-
-```bash
-# Start the inference service
-script/dm05_launcher.sh \
-  --exp playground/dm05_libero.py \
-  --task inference \
-  --nproc_per_node 1 \
-  --model-config.model-name-or-path ./checkpoints/DM05-libero-checkpoint \
-  --model-config.chunk-size 10 \
-  --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
-  --inference-config.port 7891
-```
-
-Arguments:
-
-- `--exp playground/dm05_libero.py`: inference entry for LIBERO scenarios, consistent with training.
-- `--task inference`: task type. Use `inference` for inference.
-- `--nproc_per_node 1`: number of GPUs used on a single node. 1 GPU is sufficient for inference.
-- `--model-config.model-name-or-path ./checkpoints/DM05-libero-checkpoint`: model checkpoint path.
-- `--model-config.chunk-size 10`: action chunk length. It must match the training stage.
-- `--inference-config.output-action-dim 7`: LIBERO action output dimension.
-- `--inference-config.image-keys images_1 images_2`: image keys used for LIBERO inference. They must correspond to the image inputs in evaluation requests.
+See the [DM05 Inference Guide](dm05_inference.md) for the released LIBERO checkpoint, the complete service command, fast backend setup, and HTTP API usage.
 
 ## LIBERO Evaluation
 
 ### Preparation
 
 1. Use at least 2 GPUs for the evaluation workflow when possible: one GPU for the inference service and another for benchmark evaluation. A100, H100, H20, and 4090 GPUs are supported.
-2. Start the inference service according to the official steps. Keep the service running after startup because benchmark evaluation sends HTTP requests to this service for action prediction.
+2. Start the service with the [DM05 Inference Guide](dm05_inference.md). Keep it running because benchmark evaluation sends HTTP requests to this service for action prediction.
 3. Configure the benchmark environment. For detailed steps and more test methods, see `dexbotic-benchmark`. The official Docker image is recommended as the benchmark client environment. This image runs the LIBERO environment and sends HTTP requests to the DM05 inference service started above.
 
 ```bash

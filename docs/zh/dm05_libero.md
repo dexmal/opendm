@@ -88,40 +88,13 @@ script/dm05_launcher.sh \
 - `--trainer-config.num-train-steps 100000`：总训练步数。
 
 ## Libero 推理
-**完成环境安装和源码初始化后**，可以利用上一步训练好的 DM05 Libero 模型 checkpoint 启动模型推理服务。
 
-### 前提条件
-推理前，请确认已经**按照官方步骤完成 OpenDM 环境安装和源码初始化。**
-
-### 启动推理
-- 推理会优先读取模型 checkpoint 目录下的 `norm_stats.json`；请确认该 checkpoint 来自与当前推理配置一致的 LIBERO 训练流程。
-
-```bash
-# 启动推理服务
-script/dm05_launcher.sh \
-  --exp playground/dm05_libero.py \
-  --task inference \
-  --nproc_per_node 1 \
-  --model-config.model-name-or-path ./checkpoints/DM05-libero-checkpoint \
-  --model-config.chunk-size 10 \
-  --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
-  --inference-config.port 7891
-```
-参数说明：
-- `--exp playground/dm05_libero.py`：使用 LIBERO 场景的推理入口，与训练阶段保持一致。
-- `--task inference`：任务类型，推理时使用 inference。
-- `--nproc_per_node 1`：单节点使用的 GPU 数量，推理使用 1 卡就可以。
-- `--model-config.model-name-or-path ./checkpoints/DM05-libero-checkpoint`：模型 checkpoint 路径。
-- `--model-config.chunk-size 10`：action chunk 长度，需要与训练阶段保持一致。
-- `--inference-config.output-action-dim 7`：LIBERO 动作输出维度。
-- `--inference-config.image-keys images_1 images_2`：LIBERO 推理使用的图像键，需要与评测请求中的图像输入对应。
-
+发布版 LIBERO checkpoint、完整服务命令、fast backend 配置和 HTTP API 使用方法统一参考 [DM05 推理指南](dm05_inference.md)。
 
 ## Libero 评测
 ### 准备阶段
 1. 建议使用至少 2 卡完成评测过程，一卡用于推理服务，另一卡用于启动 benchmark 评测。支持 A100, H100, H20, 4090 等 GPU 卡。
-2. 推理服务已启动，参考官方提供的步骤完成环境初始化、启动模型推理服务。 服务启动后需要保持运行，benchmark 评测会通过 HTTP 接口请求该服务完成动作预测。
+2. 按照 [DM05 推理指南](dm05_inference.md)启动服务并保持运行，benchmark 评测会通过 HTTP 接口请求该服务完成动作预测。
 3. 配置 benchmark 环境，详细步骤与更多测试方法参考 dexbotic-benchmark 。 推荐使用官方提供的 Docker 镜像作为 benchmark 运行环境。该镜像作为评测客户端使用，负责运行 LIBERO 环境，并通过 HTTP 请求前面启动的 DM05 推理服务
 ```bash
 # 获取评测脚本和配置文件

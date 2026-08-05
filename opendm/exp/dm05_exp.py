@@ -13,10 +13,11 @@ import torch
 import tyro
 from flask import Flask, jsonify, request
 from loguru import logger
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoProcessor
+from werkzeug.exceptions import BadRequest
 
 import opendm.data.normalize as normalize
 from opendm.constants.robot import ROBOT_STATE_DESCS, ActionMode, RobotType
@@ -379,6 +380,22 @@ class DM05InferenceConfig(Config):
     image_keys: list[str] = field(
         default_factory=lambda: ["images_1", "images_2", "images_3"]
     )
+    backend: Literal["default", "fast"] = field(default="default")
+    vision_trt_engine_path: str | None = field(default=None)
+    force_rebuild: bool = field(default=False)
+    prefix_seq_len_buckets: list[int] | None = field(default=None)
+
+    @staticmethod
+    def _norm_vector_dim(stats: dict, field_name: str) -> int:
+        for key in ("q01", "q99", "mean", "std", "min", "max"):
+            values = stats.get(key)
+            if values is not None:
+                return int(np.asarray(values).size)
+        raise ValueError(f"Cannot infer normalization dimension for {field_name!r}.")
+
+    @staticmethod
+    def _supported_robot_types() -> list[str]:
+        return [robot_type.value for robot_type in ROBOT_STATE_DESCS]
 
     def _initialize(
         self,
@@ -396,9 +413,37 @@ class DM05InferenceConfig(Config):
         else:
             self.device = torch.device("cpu")
 
+        self.use_absolute_action = use_absolute_action
+        self.last_model_latency_sec = None
         model.to(self.device)
         model.eval()
         self.model = model
+        self.fast_runtime = None
+        transform_max_length = model_max_length
+        if self.backend == "fast":
+            from opendm.infer.dm05_infer import DM05FastInferRuntime
+            from opendm.infer.dm05_trt_utils import ensure_dm05_fast_inference_engine
+
+            dm05_model = unwrap_dm05_model(model)
+            engine_path = ensure_dm05_fast_inference_engine(
+                checkpoint=model_name_or_path,
+                engine_path=self.vision_trt_engine_path,
+                num_images=len(self.image_keys),
+                force_rebuild=self.force_rebuild,
+            )
+            self.vision_trt_engine_path = str(engine_path)
+            self.fast_runtime = DM05FastInferRuntime(
+                dm05_model,
+                vision_trt_engine_path=engine_path,
+                prefix_seq_len_buckets=self.prefix_seq_len_buckets,
+                diffusion_steps=self.diffusion_steps,
+            )
+            vlm_model = dm05_model.model.vlm.model
+            self.fast_image_token_id = int(vlm_model.config.image_token_id)
+            self.fast_mm_tokens_per_image = int(vlm_model.config.mm_tokens_per_image)
+            transform_max_length = min(
+                transform_max_length, self.fast_runtime.prefix_len
+            )
 
         self.processor = AutoProcessor.from_pretrained(
             model_name_or_path,
@@ -406,21 +451,55 @@ class DM05InferenceConfig(Config):
         )
         logger.info("Model loaded successfully")
 
+        input_normalize = Normalize(
+            norm_stats_path=norm_stats_path,
+            norm_keys=["state"],
+            use_quantiles=True,
+        )
+        output_denormalize = Denormalize(
+            norm_stats_path=norm_stats_path,
+            norm_keys=["action"],
+            use_quantiles=True,
+        )
+        self.expected_state_dim = self._norm_vector_dim(
+            input_normalize.norm_stats["state"],
+            "state",
+        )
+        self.expected_action_dim = self._norm_vector_dim(
+            output_denormalize.norm_stats["action"],
+            "action",
+        )
+        if self.output_action_dim <= 0:
+            raise ValueError(
+                f"inference output_action_dim must be positive, got {self.output_action_dim}."
+            )
+        if self.output_action_dim != self.expected_action_dim:
+            raise ValueError(
+                "inference output_action_dim must match action normalization "
+                f"dimension, got output_action_dim={self.output_action_dim}, "
+                f"action_dim={self.expected_action_dim}."
+            )
+        if (
+            self.use_absolute_action
+            and self.expected_state_dim != self.expected_action_dim
+        ):
+            raise ValueError(
+                "Absolute action output requires matching state and action "
+                f"dimensions, got state_dim={self.expected_state_dim}, "
+                f"action_dim={self.expected_action_dim}."
+            )
+
         self.input_transform = Pipeline(
             [
                 PixelTransform(
                     transform_pipeline=NoAugmentationPipeline(),
                     image_keys=self.image_keys,
                 ),
-                Normalize(
-                    norm_stats_path=norm_stats_path,
-                    norm_keys=["state"],
-                    use_quantiles=True,
-                ),
+                input_normalize,
                 ChatTokenization(
                     processor=self.processor,
                     n_bins=n_bins,
-                    max_length=model_max_length,
+                    max_length=transform_max_length,
                     image_keys=self.image_keys,
                     add_state=add_state,
                     enable_logging=False,
@@ -430,38 +509,74 @@ class DM05InferenceConfig(Config):
         )
         self.output_transform = Pipeline(
             [
-                Denormalize(
-                    norm_stats_path=norm_stats_path,
-                    norm_keys=["action"],
-                    use_quantiles=True,
-                ),
+                output_denormalize,
                 *([ActionAbsolute()] if use_absolute_action else []),
             ]
         )
 
     def _prepare_input(self) -> dict:
-        images = request.files.getlist("image", None)
-        states = request.form.get("states", None)
+        images = request.files.getlist("image")
+        states = request.form.get("states")
         text = request.form.get("text", "")
-        robot_type = request.form.get("robot_type")
-        speed = request.form.get("speed")
-        control_mode = request.form.get("control_mode")
+        robot_type = request.form.get("robot_type") or None
+        speed = request.form.get("speed") or None
+        control_mode = request.form.get("control_mode") or None
+
+        if states is None:
+            raise BadRequest("Form field 'states' is required.")
+        if len(images) != len(self.image_keys):
+            raise BadRequest(
+                f"Expected {len(self.image_keys)} uploaded 'image' files in the "
+                f"order {self.image_keys}, got {len(images)}."
+            )
+        if self.use_absolute_action and robot_type is None:
+            raise BadRequest(
+                "Form field 'robot_type' is required for absolute action output. "
+                f"Supported: {self._supported_robot_types()}."
+            )
 
         state_desc = None
         if robot_type is not None:
-            robot_type_enum = RobotType(robot_type)
+            supported = self._supported_robot_types()
+            try:
+                robot_type_enum = RobotType(robot_type)
+            except ValueError as exc:
+                raise BadRequest(
+                    f"Unsupported robot_type {robot_type!r}. Supported: {supported}"
+                ) from exc
             if robot_type_enum not in ROBOT_STATE_DESCS:
-                supported = [rt.value for rt in ROBOT_STATE_DESCS]
-                raise ValueError(
+                raise BadRequest(
                     f"Unsupported robot_type {robot_type!r}. Supported: {supported}"
                 )
             state_desc = ROBOT_STATE_DESCS[robot_type_enum]
 
-        pil_images = {
-            self.image_keys[i]: Image.open(img).convert("RGB")
-            for i, img in enumerate(images)
-        }
-        state = np.array(json.loads(states), dtype=np.float32)
+        try:
+            parsed_states = json.loads(states)
+        except json.JSONDecodeError as exc:
+            raise BadRequest("Form field 'states' must be a valid JSON array.") from exc
+        if not isinstance(parsed_states, list):
+            raise BadRequest("Form field 'states' must be a JSON array.")
+
+        try:
+            state = np.asarray(parsed_states, dtype=np.float32)
+        except (TypeError, ValueError) as exc:
+            raise BadRequest(
+                "Form field 'states' must contain numeric values."
+            ) from exc
+        if state.ndim != 1:
+            raise BadRequest("Form field 'states' must be a 1D JSON array.")
+        if state.size == 0:
+            raise BadRequest("Form field 'states' must not be empty.")
+
+        pil_images = {}
+        for image_key, img in zip(self.image_keys, images, strict=True):
+            try:
+                pil_images[image_key] = Image.open(img).convert("RGB")
+            except (UnidentifiedImageError, OSError, ValueError) as exc:
+                filename = getattr(img, "filename", "") or "<unknown>"
+                raise BadRequest(
+                    f"Uploaded file for {image_key!r} is not a valid image: {filename}."
+                ) from exc
 
         return {
             **pil_images,
@@ -476,8 +591,29 @@ class DM05InferenceConfig(Config):
         }
 
     def _predict(self, data: dict) -> np.ndarray:
+        self.last_model_latency_sec = None
         state = data["state"]
+        if state.shape[0] != self.expected_state_dim:
+            raise BadRequest(
+                "State dimension does not match normalization stats: "
+                f"expected {self.expected_state_dim}, got {state.shape[0]}."
+            )
+
         model_input = self.input_transform(data)
+        inference_seed = os.environ.get("DM05_INFERENCE_SEED")
+        if inference_seed is not None:
+            seed = int(inference_seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+        prefix_len = int(model_input["input_ids"].shape[1])
+        if self.backend == "fast" and prefix_len > self.fast_runtime.prefix_len:
+            raise BadRequest(
+                f"Prefix length {prefix_len} exceeds the fast backend limit of "
+                f"{self.fast_runtime.prefix_len} tokens. Shorten the prompt or "
+                "reduce model_max_length."
+            )
+
         dm05_model = unwrap_dm05_model(self.model)
         action_dim = dm05_model.model.config.action_dim
         action_mask = torch.zeros(
@@ -488,14 +624,33 @@ class DM05InferenceConfig(Config):
             dtype=dm05_model.model.action_in_proj.weight.dtype,
         )
         action_mask[..., : self.output_action_dim] = 1.0
-        actions = self.model.inference_action(
-            input_ids=model_input["input_ids"],
-            attention_mask=model_input["attention_mask"],
-            pixel_values=model_input["pixel_values"],
-            token_type_ids=model_input["token_type_ids"],
-            diffusion_steps=self.diffusion_steps,
-            action_mask=action_mask,
-        )
+        inference_kwargs = {
+            "input_ids": model_input["input_ids"],
+            "attention_mask": model_input["attention_mask"],
+            "pixel_values": model_input["pixel_values"],
+            "token_type_ids": model_input["token_type_ids"],
+            "diffusion_steps": self.diffusion_steps,
+            "action_mask": action_mask,
+        }
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        model_t0 = time.perf_counter()
+        if self.backend == "fast":
+            actions = self.fast_runtime.inference_action(
+                **inference_kwargs,
+            )
+        else:
+            actions = self.model.inference_action(**inference_kwargs)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        self.last_model_latency_sec = time.perf_counter() - model_t0
+
+        if int(actions.shape[-1]) < self.output_action_dim:
+            raise RuntimeError(
+                "Model action dimension is smaller than configured output_action_dim: "
+                f"model returned {int(actions.shape[-1])}, "
+                f"configured {self.output_action_dim}."
+            )
 
         raw_actions = (
             actions.to(torch.float32)
@@ -517,8 +672,24 @@ class DM05InferenceConfig(Config):
         t0 = time.monotonic()
         data = self._prepare_input()
         actions = self._predict(data)
-        logger.info(f"Processing time: {time.monotonic() - t0:.3f}s")
-        return jsonify({"response": actions.tolist()})
+        api_latency_sec = time.monotonic() - t0
+        logger.info(
+            "Processing time: {:.3f}s, model_latency_ms={}",
+            api_latency_sec,
+            None
+            if self.last_model_latency_sec is None
+            else round(self.last_model_latency_sec * 1000.0, 3),
+        )
+        return jsonify(
+            {
+                "response": actions.tolist(),
+                "model_latency_ms": (
+                    None
+                    if self.last_model_latency_sec is None
+                    else round(self.last_model_latency_sec * 1000.0, 3)
+                ),
+            }
+        )
 
 
 @dataclass
@@ -621,8 +792,17 @@ class DM05Exp(Config):
 
     def _initialize_inference_runtime(self) -> None:
         """Build the model and transforms shared by inference entry points."""
-        # Match the dexbotic RoboTwin2 inference backend.
-        self.model_config.llm_attn_implementation = "eager"
+        use_fast_backend = self.inference_config.backend == "fast"
+        if use_fast_backend or self.inference_config.prefix_seq_len_buckets:
+            from opendm.infer.dm05_infer import DM05FastInferRuntime
+
+            DM05FastInferRuntime.resolve_prefix_seq_len_buckets(
+                self.inference_config.prefix_seq_len_buckets,
+                fast_backend=use_fast_backend,
+            )
+        self.model_config.llm_attn_implementation = (
+            "flex_attention" if use_fast_backend else "eager"
+        )
         logger.info(f"Loading model from {self.model_config.model_name_or_path}")
         model = self.model_config.build_model(use_lora=self.use_lora)
         ckpt_norm_stats_path = (

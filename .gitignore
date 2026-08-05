@@ -165,7 +165,10 @@ cython_debug/
 wandb/
 checkpoints/
 checkpoints
+checkpoints/trt_engines/dm05_vision.engine
+checkpoints/trt_engines/dm05_vision.onnx
 logs/
+/artifacts/
 /data/
 debug_data/
 user_checkpoints/

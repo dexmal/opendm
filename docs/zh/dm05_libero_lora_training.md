@@ -134,20 +134,6 @@ script/dm05_launcher.sh \
 - `unexpected_trainable_parameters` 应为空。
 - 密集保存模块应包含 action projections、time MLPs 和展开后的 time modulators。
 
-## Checkpoints 和推理
+## Checkpoints
 
-Step checkpoints 是多卡 LoRA/FSDP 训练的标准产物。推理时，将 LoRA checkpoint 路径作为 `--model-config.model-name-or-path` 传入；loader 会读取 `adapter_config.json`，加载记录的 base model，并合并 adapter 用于推理。
-
-使用你的训练运行产出的 checkpoint 路径。例如，如果训练输出目录是 `${TRAINING_OUTPUT_DIR}`，可以使用 `${TRAINING_OUTPUT_DIR}/checkpoint-50000` 这样的 checkpoint。
-
-```bash
-script/dm05_launcher.sh \
-  --exp playground/dm05_libero_lora.py \
-  --task inference \
-  --nproc_per_node 1 \
-  --model-config.model-name-or-path ${TRAINING_OUTPUT_DIR}/checkpoint-50000 \
-  --model-config.chunk-size 10 \
-  --inference-config.output-action-dim 7 \
-  --inference-config.image-keys images_1 images_2 \
-  --inference-config.port 7891
-```
+Step checkpoints 是多卡 LoRA/FSDP 训练的标准产物。Adapter 加载方式和完整的 LIBERO LoRA 服务命令统一参考 [DM05 推理指南](dm05_inference.md)。
