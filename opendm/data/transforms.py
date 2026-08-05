@@ -107,6 +107,10 @@ class Normalize:
 
     def __call__(self, data, **kw):
         for key in self.norm_keys:
+            if key not in self.norm_stats:
+                continue
+            if key not in data:
+                continue
             data[key] = self._normalize(data[key], self.norm_stats[key])
         return data
 

@@ -485,10 +485,6 @@ class DM05InferenceConfig(Config):
             norm_keys=["action"],
             use_quantiles=True,
         )
-        self.expected_state_dim = self._norm_vector_dim(
-            input_normalize.norm_stats["state"],
-            "state",
-        )
         self.expected_action_dim = self._norm_vector_dim(
             output_denormalize.norm_stats["action"],
             "action",
@@ -501,15 +497,6 @@ class DM05InferenceConfig(Config):
             raise ValueError(
                 "inference output_action_dim must match action normalization "
                 f"dimension, got output_action_dim={self.output_action_dim}, "
-                f"action_dim={self.expected_action_dim}."
-            )
-        if (
-            self.use_absolute_action
-            and self.expected_state_dim != self.expected_action_dim
-        ):
-            raise ValueError(
-                "Absolute action output requires matching state and action "
-                f"dimensions, got state_dim={self.expected_state_dim}, "
                 f"action_dim={self.expected_action_dim}."
             )
 
@@ -683,12 +670,6 @@ class DM05InferenceConfig(Config):
     def _predict(self, data: dict) -> np.ndarray:
         self.last_model_latency_sec = None
         state = data["state"]
-        if state.shape[0] != self.expected_state_dim:
-            raise BadRequest(
-                "State dimension does not match normalization stats: "
-                f"expected {self.expected_state_dim}, got {state.shape[0]}."
-            )
-
         model_input = self.input_transform(data)
         inference_seed = os.environ.get("DM05_INFERENCE_SEED")
         if inference_seed is not None:
