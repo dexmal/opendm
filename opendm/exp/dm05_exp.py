@@ -45,6 +45,7 @@ from opendm.model.dm05.dm05_lora import (
     unwrap_dm05_model,
 )
 from opendm.optimizer import MuonAdamW, mark_muon_parameters
+from opendm.optimizer.muon_adamw import is_default_muon_parameter
 from opendm.trainer.trainer import DMTrainer, safe_save_model_for_hf_trainer
 
 
@@ -164,9 +165,16 @@ class DM05OptimizerConfig(Config):
     muon_lr_scale: float = field(default=1.0)
     muon_moonlight_coefficient: float = field(default=0.2)
 
+    def should_use_muon(
+        self,
+        name: str,
+        param: torch.nn.Parameter,
+    ) -> bool:
+        return is_default_muon_parameter(name, param)
+
     def prepare_model(self, model: torch.nn.Module) -> None:
         if self.optim == "muon_adamw":
-            mark_muon_parameters(model)
+            mark_muon_parameters(model, predicate=self.should_use_muon)
 
     def build_muon_adamw(self, model: torch.nn.Module) -> MuonAdamW:
         return MuonAdamW(
