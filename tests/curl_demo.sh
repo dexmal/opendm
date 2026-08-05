@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${1:-http://127.0.0.1:7891/v1/infer}"
+ROBOT_TYPE="${2:-DOS W1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMG_DIR="${SCRIPT_DIR}/../assets/demo/images/episode0"
 
@@ -19,7 +20,7 @@ curl -sS -X POST "${BASE_URL}" \
 {
   "observation": {
     "prompt": "Hold the roller for smoothing materials with both arms to pick it up",
-    "robot_type": "DOS W1",
+    "robot_type": "${ROBOT_TYPE}",
     "state": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
     "images": {
       "1": "${HEAD_IMAGE}",

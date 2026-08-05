@@ -107,6 +107,19 @@ Dexdata dialogue fields such as `answer` and `conversations` are not required.
   `data_config.action_mode` (CLI: `--data-config.action-mode`); keep the choice
   consistent with the dataset and downstream controller.
 
+Normalization statistics are computed per experiment. Data sources with the
+same `robot_type` share one state/action profile, while different robot types
+are stored separately under `norm_stats_by_robot` in the same
+`norm_stats.json`. Training and inference select the profile from the sample or
+request `robot_type`. Historical files containing only top-level `norm_stats`
+remain supported. Profiles may omit `state` when the corresponding experiment
+does not normalize state.
+
+An extended file declares its default through `default_robot_type` and keeps a
+copy of that profile in top-level `norm_stats` for old readers. Multi-robot
+experiments must set `norm_stats_default_robot_type`; single-robot experiments
+infer it automatically.
+
 ## 5. Register a Dataset
 
 Create a Python registration file. OpenDM automatically imports `.py` files
@@ -116,7 +129,7 @@ under `opendm/dataset/` whose names do not start with `_`, except
 ```python
 # opendm/dataset/my_robot.py
 
-from opendm.constants.robot import RobotStateDesc
+from opendm.constants.robot import RobotStateDesc, RobotType
 from opendm.dataset.register import register_dataset
 
 MY_ROBOT_STATE_DESC = (
@@ -133,6 +146,7 @@ register_dataset(
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
             "image_prompts": ["Head", "Left wrist", "Right wrist"],
+            "robot_type": RobotType.ALOHA,
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     },
@@ -149,7 +163,7 @@ register_dataset(
 | `image_keys` | Ordered camera fields to load from every frame. |
 | `image_prompts` | Required. Camera labels one-to-one with `image_keys` for the chat template (e.g. `Head`, `Left wrist`). |
 | `state_desc` | Semantic type of each state dimension. It also identifies dimensions that remain absolute in relative action mode. Supported values are `RobotStateDesc.JOINT`, `RobotStateDesc.EEF`, and `RobotStateDesc.GRIPPER`. |
-| `robot_type` | Optional robot label, normally one of the values in `RobotType`. |
+| `robot_type` | Robot label, normally one of the values in `RobotType`. It selects the state description and matching normalization profile. Historical untyped data remains supported. |
 
 Paths may be absolute or relative to the directory from which training is
 launched. Commands in this repository are intended to run from the OpenDM

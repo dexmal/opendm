@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 from collections import deque
 
 import numpy as np
@@ -14,6 +13,7 @@ from utils.constants import IMAGE_MAPPING
 from utils.transforms import euler_to_quat, quat_to_euler, unwrap_euler_sequence
 
 from opendm.constants.robot import RobotStateDesc
+from opendm.data.normalize import load_norm_stats_file
 from opendm.data.transforms import ChatTokenization
 from opendm.exp.dm05_exp import DM05InferenceConfig, DM05ModelConfig
 
@@ -253,33 +253,27 @@ def _build_state_desc(dim: int, target: str, native_dim: int) -> list[RobotState
     return desc
 
 
-def _read_action_norm_dim(norm_stats_path: str) -> int:
+def _read_action_norm_dim(
+    norm_stats_path: str,
+    robot_type: str | None = None,
+) -> int:
     """Read action vector dim from an OpenDM ``norm_stats.json`` (q01/q99)."""
-    with open(norm_stats_path) as f:
-        loaded = json.load(f)
-    raw = loaded.get("norm_stats", loaded)
-    if not isinstance(raw, dict) or "action" not in raw:
-        raise ValueError(
-            f"Invalid norm_stats format in {norm_stats_path}; "
-            "expected top-level norm_stats.action with q01/q99"
-        )
-    action = raw["action"]
-    if not isinstance(action, dict):
-        raise ValueError(f"action stats must be a dict in {norm_stats_path}")
-    missing = [k for k in ("q01", "q99") if k not in action]
+    profile = load_norm_stats_file(norm_stats_path).select(robot_type)
+    action = profile["action"]
+    missing = [key for key in ("q01", "q99") if getattr(action, key) is None]
     if missing:
-        raise ValueError(
-            f"action stats missing {missing} in {norm_stats_path}; keys={list(action)}"
-        )
-    if "state" in raw and isinstance(raw["state"], dict):
-        state = raw["state"]
+        raise ValueError(f"action stats missing {missing} in {norm_stats_path}")
+    action_dim = len(action.q01)
+    if "state" in profile:
+        state = profile["state"]
         for key in ("q01", "q99"):
-            if key in state and len(state[key]) != len(action["q01"]):
+            values = getattr(state, key)
+            if values is not None and len(values) != action_dim:
                 raise ValueError(
-                    f"state.{key} dim {len(state[key])} != action dim "
-                    f"{len(action['q01'])} in {norm_stats_path}"
+                    f"state.{key} dim {len(values)} != action dim "
+                    f"{action_dim} in {norm_stats_path}"
                 )
-    return len(action["q01"])
+    return action_dim
 
 
 class OpenDMPolicy:
@@ -450,7 +444,7 @@ class OpenDMPolicy:
         # rc_ckpt norm_stats use native dims (7 single-arm / 14 dual-arm) with
         # q01/q99. Missing state is fine: OpenDM Normalize skips absent keys.
         self.norm_stats = norm_stats
-        self.shared_dim = _read_action_norm_dim(norm_stats)
+        self.shared_dim = _read_action_norm_dim(norm_stats, self.robot_prompt_label)
         if self.shared_dim != self.native_action_dim:
             raise ValueError(
                 f"action norm dim={self.shared_dim} in {norm_stats} must equal "
@@ -544,6 +538,7 @@ class OpenDMPolicy:
             vision_trt_engine_path=self.vision_trt_engine_path,
             force_rebuild=self.force_rebuild_trt,
         )
+        self.infer_cfg.default_robot_type = self.robot_prompt_label
         self.infer_cfg._initialize(
             model=model,
             model_name_or_path=ckpt_path,

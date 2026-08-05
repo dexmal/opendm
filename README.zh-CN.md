@@ -22,6 +22,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 
 ## 最新动态
 
+- [2026-08-03] 已发布 AgileX COBOT Magic 与 DOS-W1 的[真机机型改动说明](docs/zh/robot_platforms.md)，记录相机改动及机型名称映射。
 - [2026-07-24] DM0.5 已新增 SO101 pick cube 微调 checkpoint 和 LoRA SFT 流程。参考 [DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)。
 - [2026-07-17] DM0.5 已开源 RoboTwin2.0 generalist 模型 checkpoint，以及基于 DM0.5 预训练模型的监督微调（SFT）代码。参考 [DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)。
 - [2026-07-09] DM0.5 正式发布。更多模型细节请阅读[技术博客](https://www.dexmal.com/blog/dm0.5/index.html)。
@@ -160,7 +161,7 @@ python -c "import torch.nn.attention.flex_attention"
 ```python
 # opendm/dataset/my_robot.py
 
-from opendm.constants.robot import RobotStateDesc
+from opendm.constants.robot import RobotStateDesc, RobotType
 from opendm.dataset.register import register_dataset
 
 MY_ROBOT_STATE_DESC = (
@@ -177,6 +178,7 @@ register_dataset(
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
             "image_prompts": ["Head", "Left wrist", "Right wrist"],
+            "robot_type": RobotType.ALOHA,
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -190,9 +192,10 @@ register_dataset(
 - `image_dir`：图像文件目录。
 - `image_keys`：数据中需要读取的图像字段名。
 - `image_prompts`：与加载图像顺序对应的 prompt 标签（如 Head / Left wrist）。
+- `robot_type`：数据对应的机型，用于选择 state 描述和该机型的归一化统计。
 - `state_desc`：状态 / 动作各维度对应的机器人关节、夹爪等含义。
 
-训练启动时，如果对应的归一化参数文件不存在，脚本会根据当前数据集、action mode 和 chunk size 自动计算，并保存到 `./norm_stats/`。
+训练启动时，如果对应的归一化参数文件不存在，脚本会根据当前实验数据、action mode 和 chunk size 自动计算，并保存到 `./norm_stats/`。同一实验中相同机型的数据共享一组统计值，不同机型分别写入同一文件。
 
 ### 启动训练
 
@@ -257,6 +260,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 ## 使用指南
 
 - 下载模型：参考[模型](#模型)或访问 [Dexmal Hugging Face](https://huggingface.co/Dexmal)
+- 查看真机配置改动：参考 [AgileX COBOT Magic 与 DOS-W1 机型改动说明](docs/zh/robot_platforms.md)
 - 准备数据：参考 [OpenDM 数据使用指南](docs/zh/data.md)
 - 启动推理服务：参考 [DM05 推理指南](docs/zh/dm05_inference.md)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)

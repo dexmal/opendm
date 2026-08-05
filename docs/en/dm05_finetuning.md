@@ -89,7 +89,7 @@ script/dm05_launcher.sh \
   --trainer-config.output-dir ./user_checkpoints/dm05_sft_demo
 ```
 
-During training, OpenDM needs normalization statistics for `state` and `action`. If the matching file does not exist, OpenDM computes it from the training dataset and saves it under `./norm_stats/`. The same stats are copied into saved checkpoints as `norm_stats.json`.
+During training, OpenDM needs normalization statistics for `state` and `action`. If the matching file does not exist, OpenDM computes it from the current experiment data and saves it under `./norm_stats/`. Data with the same `robot_type` shares one profile, while different robots are stored under `norm_stats_by_robot` in the same file. The complete file is copied into saved checkpoints as `norm_stats.json`.
 
 This is important because inference must use the same norm stats to normalize the input `state` and denormalize the predicted `action`.
 

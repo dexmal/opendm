@@ -1,6 +1,7 @@
 """Batch collation for training and norm-stat computation."""
 
 from collections.abc import Sequence
+from enum import Enum
 
 import numpy as np
 import torch
@@ -93,13 +94,43 @@ class TrainingCollator:
 
 
 class NormStatsCollator:
-    def __call__(self, instances: Sequence[dict]) -> dict[str, np.ndarray]:
-        batch = {}
+    def __call__(self, instances: Sequence[dict]) -> dict:
+        grouped_instances: dict[str | None, list[dict]] = {}
+        for instance in instances:
+            robot_type = instance.get("meta_data", {}).get("robot_type")
+            if isinstance(robot_type, Enum):
+                robot_type = str(robot_type.value)
+            elif robot_type is not None:
+                robot_type = str(robot_type)
+            grouped_instances.setdefault(robot_type, []).append(instance)
 
-        state_list = [inst["state"] for inst in instances]
-        action_list = [inst["action"] for inst in instances]
+        if None in grouped_instances and len(grouped_instances) > 1:
+            raise ValueError(
+                "Cannot compute norm stats from a batch containing both typed "
+                "and untyped robot samples"
+            )
 
-        batch["state"] = np.stack(state_list, axis=0)
-        batch["action"] = np.concatenate(action_list, axis=0)
-
-        return batch
+        robot_batches = {}
+        for robot_type, robot_instances in grouped_instances.items():
+            robot_batch = {}
+            for key in ("state", "action"):
+                presence = [key in instance for instance in robot_instances]
+                if any(presence) and not all(presence):
+                    raise ValueError(
+                        f"Inconsistent {key!r} presence for robot_type {robot_type!r}"
+                    )
+                if not any(presence):
+                    continue
+                values = [instance[key] for instance in robot_instances]
+                robot_batch[key] = (
+                    np.stack(values, axis=0)
+                    if key == "state"
+                    else np.concatenate(values, axis=0)
+                )
+            if "action" not in robot_batch:
+                raise ValueError(
+                    f"Cannot compute norm stats without action for robot_type "
+                    f"{robot_type!r}"
+                )
+            robot_batches[robot_type] = robot_batch
+        return {"robot_batches": robot_batches}

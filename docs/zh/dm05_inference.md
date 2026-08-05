@@ -17,6 +17,11 @@
   `./norm_stats/` 下的匹配文件。
 - 一张 NVIDIA GPU。
 
+一个 `norm_stats.json` 可以在 `norm_stats_by_robot` 中保存多个机型 profile。
+OpenDM 根据 `observation.robot_type` 精确选择；未传入时使用数据集配置的默认机型，
+没有数据集默认值时再使用文件的 `default_robot_type`。历史单 profile 文件仍受支持，
+未知机型不会静默回退到默认 profile。
+
 Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度和归一化统计
 必须来自同一套训练配置。
 
@@ -255,7 +260,8 @@ EOF
   `--data-config.is-history` 才可使用；无历史时省略或传 `[]`。完整请求见
   [`tests/curl_history.sh`](../../tests/curl_history.sh)。
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
-  继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
+  继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值
+  精确选择 profile，例如 `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
 - `observation.control_mode` 和 `observation.speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；
   如果 checkpoint 训练时使用了这些字段，则应显式传入。
 - `sampling`：可选 JSON 对象。`num_steps` 必须与服务固定的 diffusion steps 一致，`seed`
@@ -280,6 +286,9 @@ EOF
 ```bash
 # 无 history（普通三图请求）
 bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+
+# 在多机型 checkpoint 中选择 Aloha profile
+bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer Aloha
 
 # 带 history_images（服务需以 --data-config.is-history 启动）
 bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
@@ -307,7 +316,8 @@ Legacy 请求字段：
 - `history_images`：可选的历史帧（重复 multipart 字段，从旧到新）。仅当服务启动时加了
   `--data-config.is-history` 才可使用。
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
-  例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
+  例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值精确选择 profile，例如
+  `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
 - `control_mode` 和 `speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；如果 checkpoint
   训练时使用了这些字段，则应显式传入。
 

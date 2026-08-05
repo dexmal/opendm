@@ -18,6 +18,12 @@ Run all commands from the OpenDM repository root. Prepare:
   OpenDM falls back to the matching file under `./norm_stats/`.
 - One NVIDIA GPU.
 
+One `norm_stats.json` may contain multiple robot profiles under
+`norm_stats_by_robot`. OpenDM selects the exact profile using
+`observation.robot_type`; if it is omitted, the configured dataset default or
+the file's `default_robot_type` is used. Historical single-profile files remain
+supported. An unknown robot never falls back silently to the default profile.
+
 The checkpoint, playground entry point, `chunk_size`, image keys, state/action
 dimensions, and normalization statistics must come from the same training
 configuration.
@@ -276,8 +282,9 @@ Request fields:
   [`tests/curl_history.sh`](../../tests/curl_history.sh) for a full request.
 - `observation.robot_type`: optional robot embodiment used for state/action
   semantics. Benchmark entry points inherit dataset defaults such as `Franka`
-  and `Aloha RoboTwin2`; custom relative-action entries may need this field
-  explicitly.
+  and `Aloha RoboTwin2`. Multi-robot checkpoints select profiles by the exact
+  value, for example `Aloha` or `DOS W1`; custom relative-action entries may
+  need this field explicitly.
 - `observation.control_mode` and `observation.speed`: optional text-conditioning
   fields. The service defaults `speed` to `"0.5"`; provide both fields when the
   checkpoint was trained with them.
@@ -304,6 +311,9 @@ For the built-in demo checkpoint you can also run:
 ```bash
 # No history (plain three-image request)
 bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+
+# Select the Aloha profile in a multi-robot checkpoint
+bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer Aloha
 
 # With history_images (start the service with --data-config.is-history)
 bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
@@ -335,7 +345,9 @@ Legacy request fields:
   valid when the service was started with `--data-config.is-history`.
 - `robot_type`: optional robot embodiment used for state/action semantics.
   Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
-  RoboTwin2`; custom relative-action entries may need this field explicitly.
+  RoboTwin2`. Multi-robot checkpoints select profiles by the exact value, for
+  example `Aloha` or `DOS W1`; custom relative-action entries may need this
+  field explicitly.
 - `control_mode` and `speed`: optional text-conditioning fields. The service
   defaults `speed` to `"0.5"`; provide both fields when the checkpoint was
   trained with them.

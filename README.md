@@ -22,6 +22,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## News
 
+- [2026-08-03] Published the [physical robot modification guide](docs/en/robot_platforms.md) for AgileX COBOT Magic and DOS-W1, documenting camera changes and the robot-name mapping used by the algorithm.
 - [2026-07-24] DM0.5 has added the SO101 pick cube fine-tuned checkpoint and the LoRA SFT workflow. See the [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 - [2026-07-17] DM0.5 has open-sourced the RoboTwin2.0 generalist model checkpoint, along with the supervised fine-tuning (SFT) code built upon the DM0.5 pretrained model. See the [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md).
 - [2026-07-09] DM0.5 is officially released. Read the [technical blog](https://www.dexmal.com/blog/dm0.5/index_en.html) for more details.
@@ -168,7 +169,7 @@ The training script selects a dataset through `--data-config.dataset-name`. Befo
 ```python
 # opendm/dataset/my_robot.py
 
-from opendm.constants.robot import RobotStateDesc
+from opendm.constants.robot import RobotStateDesc, RobotType
 from opendm.dataset.register import register_dataset
 
 MY_ROBOT_STATE_DESC = (
@@ -185,6 +186,7 @@ register_dataset(
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
             "image_prompts": ["Head", "Left wrist", "Right wrist"],
+            "robot_type": RobotType.ALOHA,
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     }
@@ -198,9 +200,10 @@ Field descriptions:
 - `image_dir`: directory containing image files.
 - `image_keys`: image field names to load from the dataset.
 - `image_prompts`: prompt labels zipped with loaded images in order (e.g. Head / Left wrist).
+- `robot_type`: robot embodiment used to select the state description and matching normalization profile.
 - `state_desc`: semantic description of each state/action dimension, such as robot joints and grippers.
 
-During training, if the corresponding normalization statistics file does not exist, the script automatically computes it from the current dataset, action mode, and chunk size, then saves it under `./norm_stats/`.
+During training, if the corresponding normalization statistics file does not exist, the script automatically computes it from the current experiment data, action mode, and chunk size, then saves it under `./norm_stats/`. Data sources for the same robot type share one profile within an experiment; different robot types are stored separately in the same file.
 
 ### Start Training
 
@@ -265,6 +268,7 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 ## Guides
 
 - Download models: see [Models](#models) or visit [Dexmal Hugging Face](https://huggingface.co/Dexmal).
+- Review physical robot changes: see the [AgileX COBOT Magic and DOS-W1 Modification Guide](docs/en/robot_platforms.md).
 - Prepare data: see the [OpenDM Data Guide](docs/en/data.md).
 - Start inference service: see the [DM05 Inference Guide](docs/en/dm05_inference.md).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).

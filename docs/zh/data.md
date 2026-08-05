@@ -100,6 +100,16 @@ Dexdata 中的 `answer`、`conversations` 等对话字段不是必需项。
   action（命令行参数为 `--data-config.action-mode`），并确保它与数据集及下游
   控制器一致。
 
+归一化参数按实验计算。同一实验中，属于同一 `robot_type` 的多个数据源共同
+计算一组 state/action 统计值；不同机型分别保存在同一个 `norm_stats.json` 的
+`norm_stats_by_robot` 中。训练和推理都会按照样本或请求中的 `robot_type` 选择
+对应统计值。历史上只包含顶层 `norm_stats` 的文件仍可直接使用；不需要归一化
+state 的实验可以省略 profile 中的 `state`。
+
+扩展文件通过 `default_robot_type` 声明默认机型，并在顶层 `norm_stats` 保留该
+机型统计值供旧代码读取。多机型实验需通过 `norm_stats_default_robot_type` 指定
+默认机型，单机型实验会自动确定。
+
 ## 5. 注册数据集
 
 创建一个 Python 注册文件。OpenDM 会自动导入 `opendm/dataset/` 下文件名不以
@@ -108,7 +118,7 @@ Dexdata 中的 `answer`、`conversations` 等对话字段不是必需项。
 ```python
 # opendm/dataset/my_robot.py
 
-from opendm.constants.robot import RobotStateDesc
+from opendm.constants.robot import RobotStateDesc, RobotType
 from opendm.dataset.register import register_dataset
 
 MY_ROBOT_STATE_DESC = (
@@ -125,6 +135,7 @@ register_dataset(
             "image_dir": "./assets/my_robot/",
             "image_keys": ["images_1", "images_2", "images_3"],
             "image_prompts": ["Head", "Left wrist", "Right wrist"],
+            "robot_type": RobotType.ALOHA,
             "state_desc": MY_ROBOT_STATE_DESC,
         },
     },
@@ -141,7 +152,7 @@ register_dataset(
 | `image_keys` | 按顺序从每帧加载的相机字段。 |
 | `image_prompts` | 必填。与 `image_keys` 一一对应的相机标签，写入 chat template（如 `Head`、`Left wrist`）。 |
 | `state_desc` | state 每个维度的语义类型；在 relative action 模式下，它也用于标识保持绝对值的维度。支持 `RobotStateDesc.JOINT`、`RobotStateDesc.EEF` 和 `RobotStateDesc.GRIPPER`。 |
-| `robot_type` | 可选机器人标签，通常使用 `RobotType` 中的值。 |
+| `robot_type` | 机器人标签，通常使用 `RobotType` 中的值；它用于选择 state 描述和对应机型的归一化统计。历史无标签数据仍受支持。 |
 
 路径可以是绝对路径，也可以相对于启动训练时的工作目录。仓库中的示例命令默认
 从 OpenDM 仓库根目录运行。

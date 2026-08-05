@@ -1,7 +1,6 @@
 """Robot imitation data transforms and pipeline."""
 
 import io
-import json
 import os
 import re
 
@@ -18,6 +17,7 @@ from opendm.constants.robot import (
     RobotStateDesc,
 )
 from opendm.data.augmentations import TransformPipeline
+from opendm.data.normalize import NormStats, NormStatsFile, load_norm_stats_file
 
 
 def _state_desc_value(desc: RobotStateDesc | str) -> str:
@@ -97,34 +97,40 @@ class Normalize:
         norm_stats_path: str,
         norm_keys: list[str],
         use_quantiles: bool = True,
+        norm_stats_file: NormStatsFile | None = None,
     ):
         self.norm_stats_path = norm_stats_path
-        with megfile.smart_open(norm_stats_path, "r") as f:
-            loaded = json.load(f)
-        self.norm_stats = loaded["norm_stats"]
+        self.norm_stats_file = norm_stats_file or load_norm_stats_file(norm_stats_path)
+        # Preserve the historical attribute for callers that inspect the default
+        # profile directly.
+        self.norm_stats = self.norm_stats_file.norm_stats
         self.norm_keys = norm_keys
         self.use_quantiles = use_quantiles
 
     def __call__(self, data, **kw):
+        robot_type = data.get("meta_data", {}).get("robot_type")
+        norm_stats = self.norm_stats_file.select(robot_type)
         for key in self.norm_keys:
-            if key not in self.norm_stats:
+            if key not in norm_stats:
                 continue
             if key not in data:
                 continue
-            data[key] = self._normalize(data[key], self.norm_stats[key])
+            data[key] = self._normalize(data[key], norm_stats[key])
         return data
 
-    def _normalize(self, arr, stats):
+    def _normalize(self, arr, stats: NormStats):
         arr = np.asarray(arr, dtype=np.float32)
         if self.use_quantiles:
-            lo = np.asarray(stats["q01"], dtype=np.float32)
-            hi = np.asarray(stats["q99"], dtype=np.float32)
+            if stats.q01 is None or stats.q99 is None:
+                raise ValueError("q01 and q99 are required for quantile normalization")
+            lo = np.asarray(stats.q01, dtype=np.float32)
+            hi = np.asarray(stats.q99, dtype=np.float32)
             arr = np.clip(arr, lo, hi)
             out = ((arr - lo) / (hi - lo + 1e-6) * 2.0 - 1.0).astype(np.float32)
             return np.where((lo == 0) & (hi == 0), 0.0, out)
 
-        mean = np.asarray(stats["mean"], dtype=np.float32)
-        std = np.asarray(stats["std"], dtype=np.float32)
+        mean = np.asarray(stats.mean, dtype=np.float32)
+        std = np.asarray(stats.std, dtype=np.float32)
         return ((arr - mean) / (std + 1e-6)).astype(np.float32)
 
 
@@ -144,28 +150,34 @@ class Denormalize:
         norm_stats_path: str,
         norm_keys: list[str],
         use_quantiles: bool = True,
+        norm_stats_file: NormStatsFile | None = None,
     ):
-        with megfile.smart_open(norm_stats_path, "r") as f:
-            loaded = json.load(f)
-        self.norm_stats = loaded["norm_stats"]
+        self.norm_stats_file = norm_stats_file or load_norm_stats_file(norm_stats_path)
+        self.norm_stats = self.norm_stats_file.norm_stats
         self.norm_keys = norm_keys
         self.use_quantiles = use_quantiles
 
     def __call__(self, data, **kw):
+        robot_type = data.get("meta_data", {}).get("robot_type")
+        norm_stats = self.norm_stats_file.select(robot_type)
         for key in self.norm_keys:
-            if key in data and key in self.norm_stats:
-                data[key] = self._denormalize(data[key], self.norm_stats[key])
+            if key in data and key in norm_stats:
+                data[key] = self._denormalize(data[key], norm_stats[key])
         return data
 
-    def _denormalize(self, arr, stats):
+    def _denormalize(self, arr, stats: NormStats):
         arr = np.asarray(arr, dtype=np.float32)
         if self.use_quantiles:
-            lo = np.asarray(stats["q01"], dtype=np.float32)
-            hi = np.asarray(stats["q99"], dtype=np.float32)
+            if stats.q01 is None or stats.q99 is None:
+                raise ValueError(
+                    "q01 and q99 are required for quantile denormalization"
+                )
+            lo = np.asarray(stats.q01, dtype=np.float32)
+            hi = np.asarray(stats.q99, dtype=np.float32)
             out = ((arr + 1.0) / 2.0 * (hi - lo + 1e-6) + lo).astype(np.float32)
             return np.where((lo == 0) & (hi == 0), 0.0, out)
-        mean = np.asarray(stats["mean"], dtype=np.float32)
-        std = np.asarray(stats["std"], dtype=np.float32)
+        mean = np.asarray(stats.mean, dtype=np.float32)
+        std = np.asarray(stats.std, dtype=np.float32)
         return (arr * (std + 1e-6) + mean).astype(np.float32)
 
 

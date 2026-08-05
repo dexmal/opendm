@@ -89,7 +89,7 @@ script/dm05_launcher.sh \
   --trainer-config.output-dir ./user_checkpoints/dm05_sft_demo
 ```
 
-训练时，OpenDM 需要使用 `state` 和 `action` 的归一化统计。如果匹配的文件不存在，OpenDM 会从训练数据中自动计算，并保存到 `./norm_stats/`。保存 checkpoint 时会把对应统计复制为 checkpoint 目录下的 `norm_stats.json`。
+训练时，OpenDM 需要使用 `state` 和 `action` 的归一化统计。如果匹配的文件不存在，OpenDM 会从当前实验数据中自动计算，并保存到 `./norm_stats/`。同一实验中相同 `robot_type` 的数据共享一组统计值，不同机型写入同一文件的 `norm_stats_by_robot`。保存 checkpoint 时会把完整文件复制为 checkpoint 目录下的 `norm_stats.json`。
 
 这很重要，因为推理时也要用同一份 norm stats 把输入 `state` 归一化，并把模型输出的 `action` 反归一化。
 

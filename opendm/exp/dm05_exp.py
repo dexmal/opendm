@@ -17,7 +17,7 @@ import tyro
 from flask import Flask, jsonify, request
 from loguru import logger
 from PIL import Image, UnidentifiedImageError
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoProcessor
 from werkzeug.exceptions import BadRequest
@@ -244,6 +244,7 @@ class DM05DataConfig(Config):
     action_mode: ActionMode = field(default=ActionMode.RELATIVE)
     compute_norm_stats_max_batches: int | None = field(default=None)
     norm_stats_root: str = field(default="./norm_stats")
+    norm_stats_default_robot_type: str | None = field(default=None)
     add_state: bool = field(default=True)
     is_history: bool = field(default=False)
 
@@ -333,30 +334,45 @@ class DM05DataConfig(Config):
 
         return dataset, collator
 
+    def build_norm_stats_dataset(self, action_horizon: int) -> Dataset:
+        """Build the experiment data stream used to compute normalization stats."""
+        dataset_info = self._dataset_info()
+        return JsonlDataset(
+            jsonl_dir=dataset_info["jsonl_dir"],
+            transforms=Pipeline([self._action_transform(action_horizon)]),
+            dataset_name=self.dataset_name,
+            dataset_meta=self._dataset_meta(dataset_info),
+        )
+
     def compute_norm_stats(
         self,
         action_horizon: int,
         batch_size: int = 128,
         num_workers: int = 32,
     ) -> None:
-        norm_keys = ["state", "action"]
-        dataset_info = self._dataset_info()
-        dataset = JsonlDataset(
-            jsonl_dir=dataset_info["jsonl_dir"],
-            transforms=Pipeline([self._action_transform(action_horizon)]),
-            dataset_name=self.dataset_name,
-            dataset_meta=self._dataset_meta(dataset_info),
-        )
+        dataset = self.build_norm_stats_dataset(action_horizon)
+        dataloader_kwargs = {
+            "batch_size": batch_size,
+            "shuffle": True,
+            "num_workers": num_workers,
+            "collate_fn": NormStatsCollator(),
+        }
+        if num_workers > 0:
+            dataloader_kwargs.update(
+                {
+                    "persistent_workers": True,
+                    "prefetch_factor": 4,
+                }
+            )
         dataloader = DataLoader(
             dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            collate_fn=NormStatsCollator(),
-            persistent_workers=True,
-            prefetch_factor=4,
+            **dataloader_kwargs,
         )
-        stats = {key: normalize.RunningStats() for key in norm_keys}
+        stats_by_robot: dict[
+            str | None,
+            dict[str, normalize.RunningStats],
+        ] = {}
+        keys_by_robot: dict[str | None, set[str]] = {}
         max_batches = self.compute_norm_stats_max_batches or len(dataloader)
         total = min(len(dataloader), max_batches)
         for batch_idx, batch in tqdm(
@@ -366,21 +382,68 @@ class DM05DataConfig(Config):
         ):
             if batch_idx >= max_batches:
                 break
-            for key in norm_keys:
-                values = batch[key]
-                stats[key].update(values.reshape(-1, values.shape[-1]))
+            for robot_type, robot_batch in batch["robot_batches"].items():
+                batch_keys = set(robot_batch)
+                expected_keys = keys_by_robot.setdefault(robot_type, batch_keys)
+                if batch_keys != expected_keys:
+                    raise ValueError(
+                        f"Inconsistent norm fields for robot_type {robot_type!r}: "
+                        f"expected {sorted(expected_keys)}, got {sorted(batch_keys)}"
+                    )
+                robot_stats = stats_by_robot.setdefault(
+                    robot_type,
+                    {key: normalize.RunningStats() for key in sorted(expected_keys)},
+                )
+                for key, values in robot_batch.items():
+                    robot_stats[key].update(values.reshape(-1, values.shape[-1]))
 
-        norm_stats = {}
-        for key, stat in stats.items():
-            stat = stat.get_statistics()
-            norm_stats[key] = {
-                name: getattr(stat, name).tolist()
-                for name in ("mean", "std", "q01", "q99")
+        if not stats_by_robot:
+            raise ValueError("Cannot compute norm stats from an empty dataset")
+        if None in stats_by_robot and len(stats_by_robot) > 1:
+            raise ValueError(
+                "Cannot compute norm stats from both typed and untyped robot samples"
+            )
+
+        computed_stats_by_robot: dict[
+            str | None,
+            dict[str, normalize.NormStats],
+        ] = {}
+        for robot_type, robot_stats in stats_by_robot.items():
+            computed_stats = {}
+            for key, running_stats in robot_stats.items():
+                result = running_stats.get_statistics()
+                computed_stats[key] = result.model_copy(
+                    update={"min": None, "max": None}
+                )
+            computed_stats_by_robot[robot_type] = computed_stats
+
+        if None in computed_stats_by_robot:
+            output = normalize.serialize_json(
+                computed_stats_by_robot[None],
+                exclude_none=True,
+            )
+        else:
+            typed_stats = {
+                robot_type: stats
+                for robot_type, stats in computed_stats_by_robot.items()
+                if robot_type is not None
             }
+            default_robot_type = self.norm_stats_default_robot_type
+            if default_robot_type is None:
+                if len(typed_stats) > 1:
+                    raise ValueError(
+                        "norm_stats_default_robot_type is required when an "
+                        "experiment contains multiple robot types"
+                    )
+                default_robot_type = next(iter(typed_stats))
+            output = normalize.serialize_norm_stats_file(
+                typed_stats,
+                default_robot_type=default_robot_type,
+            )
 
         output_path = self.norm_stats_path(action_horizon)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps({"norm_stats": norm_stats}, indent=2))
+        output_path.write_text(output)
         logger.info(f"Saved norm stats for {self.dataset_name} to {output_path}")
 
 
@@ -398,9 +461,9 @@ class DM05InferenceConfig(Config):
     prefix_seq_len_buckets: list[int] | None = field(default=None)
 
     @staticmethod
-    def _norm_vector_dim(stats: dict, field_name: str) -> int:
+    def _norm_vector_dim(stats: normalize.NormStats, field_name: str) -> int:
         for key in ("q01", "q99", "mean", "std", "min", "max"):
-            values = stats.get(key)
+            values = getattr(stats, key)
             if values is not None:
                 return int(np.asarray(values).size)
         raise ValueError(f"Cannot infer normalization dimension for {field_name!r}.")
@@ -484,18 +547,25 @@ class DM05InferenceConfig(Config):
         )
         logger.info("Model loaded successfully")
 
+        self.norm_stats_file = normalize.load_norm_stats_file(norm_stats_path)
+        if self.default_robot_type is None and self.norm_stats_file.is_multi_robot:
+            self.default_robot_type = self.norm_stats_file.default_robot_type
+
         input_normalize = Normalize(
             norm_stats_path=norm_stats_path,
             norm_keys=["state"],
             use_quantiles=True,
+            norm_stats_file=self.norm_stats_file,
         )
         output_denormalize = Denormalize(
             norm_stats_path=norm_stats_path,
             norm_keys=["action"],
             use_quantiles=True,
+            norm_stats_file=self.norm_stats_file,
         )
+        default_profile = self.norm_stats_file.select(self.default_robot_type)
         self.expected_action_dim = self._norm_vector_dim(
-            output_denormalize.norm_stats["action"],
+            default_profile["action"],
             "action",
         )
         if self.output_action_dim <= 0:
@@ -508,6 +578,22 @@ class DM05InferenceConfig(Config):
                 f"dimension, got output_action_dim={self.output_action_dim}, "
                 f"action_dim={self.expected_action_dim}."
             )
+        if self.norm_stats_file.norm_stats_by_robot is not None:
+            profile_action_dims = {
+                robot_type: self._norm_vector_dim(profile["action"], "action")
+                for robot_type, profile in self.norm_stats_file.norm_stats_by_robot.items()
+            }
+            incompatible_profiles = {
+                robot_type: action_dim
+                for robot_type, action_dim in profile_action_dims.items()
+                if action_dim != self.output_action_dim
+            }
+            if incompatible_profiles:
+                raise ValueError(
+                    "All robot profiles served by one inference process must use "
+                    f"output_action_dim={self.output_action_dim}; incompatible "
+                    f"profiles: {incompatible_profiles}"
+                )
 
         self.input_transform = Pipeline(
             [
