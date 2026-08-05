@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - ../default
+  - _self_
+
+robot_type: w1
+checkpoint: ${oc.env:W1_CHECKPOINT}
+norm_stats: ${oc.env:W1_NORM_STATS,""}
+action_type: joint
+action_horizon: 25
+
+task_overrides:
+  fold_the_clothes:
+    action_horizon: 25
+  hold_the_tray_with_both_hands:
+    action_horizon: 30
+  place_objects_into_desk_drawer:
+    action_horizon: 30
+  put_in_pen_container:
+    action_horizon: 25
+  put_the_shoes_back:
+    action_horizon: 30
+  stack_bowls:
+    action_horizon: 25
+  sweep_the_trash:
+    action_horizon: 30
+  tidy_up_the_makeup_table:
+    action_horizon: 25
+  tie_a_knot:
+    action_horizon: 25
+  untie_the_shoelaces:
+    action_horizon: 25

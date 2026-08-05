@@ -1,0 +1,34 @@
+# @package _global_
+defaults:
+  - ../default
+  - _self_
+
+robot_type: arx5
+checkpoint: ${oc.env:ARX5_CHECKPOINT}
+norm_stats: ${oc.env:ARX5_NORM_STATS,""}
+action_type: leftpos
+action_horizon: 50
+action_playback_target_steps: 25
+
+task_overrides:
+  arrange_flowers:
+    action_horizon: 50
+    action_playback_target_steps: 25
+  hang_the_cup:
+    action_horizon: 25
+    action_playback_target_steps: 0
+  pick_out_the_green_blocks:
+    action_horizon: 25
+    action_playback_target_steps: 0
+  press_the_button:
+    action_horizon: 25
+    action_playback_target_steps: 0
+  turn_on_the_light_switch:
+    action_horizon: 25
+    action_playback_target_steps: 0
+  water_the_flowers:
+    action_horizon: 50
+    action_playback_target_steps: 25
+  wipe_the_table:
+    action_horizon: 50
+    action_playback_target_steps: 25

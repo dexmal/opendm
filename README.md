@@ -260,6 +260,7 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 - LIBERO: [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md)
 - RoboTwin2.0: [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md)
 - SO101: [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md)
+- RoboChallenge Table 30 v2: [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md)
 
 ## Guides
 
@@ -267,7 +268,7 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 - Prepare data: see the [OpenDM Data Guide](docs/en/data.md).
 - Start inference service: see the [DM05 Inference Guide](docs/en/dm05_inference.md).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
-- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md) and [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
+- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md), [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md), and [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 
 ## Community and Support
 

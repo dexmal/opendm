@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - ../default
+  - _self_
+
+robot_type: ur5
+checkpoint: ${oc.env:UR5_CHECKPOINT}
+norm_stats: ${oc.env:UR5_NORM_STATS,""}
+action_type: leftpos
+action_horizon: 25
+action_playback_target_steps: 0
+
+task_overrides:
+  arrange_fruits:
+    action_horizon: 25
+    action_playback_target_steps: 0
+    runtime_args:
+      # roll -> ±π (same side as runtime), pitch -> 0
+      ur5_anchor_roll_pitch_zero: true
+  item_classification:
+    action_horizon: 25
+    action_playback_target_steps: 0
+    runtime_args:
+      ur5_anchor_roll_pitch_zero: true
+  shred_paper:
+    action_horizon: 25
+    action_playback_target_steps: 0
+    # keep pitch-only (robot profile ur5_anchor_pitch_zero); do not lock roll

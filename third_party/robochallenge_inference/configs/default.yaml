@@ -1,0 +1,133 @@
+# @package _global_
+# Default configuration
+# generalist configs set robot_type; platform runs provide task_name/prompt.
+task_name: null
+robot_type: null
+checkpoint: ???
+action_type: null
+image_type: null
+resize_name: null
+
+# Policy type. Keep dm05; robot-specific behavior is selected by robot_type.
+policy_type: dm05
+
+# Inference parameters
+action_horizon: null
+action_playback_target_steps: null
+duration: null
+image_size: [728, 728]
+debug: false
+# Number of platform image snapshots to save when debug=true.
+# 0 disables platform image saving; negative values save all snapshots.
+debug_image_limit: 0
+
+# Optional DM05 / branch-runtime parameters. When left null, execute.py fills
+# robot-specific defaults from robot_profiles below.
+norm_stats: null
+# Backward-compatible alias for opendm_root. Prefer setting OPENDM_ROOT.
+code_root: null
+runtime_args: {}
+
+# Optional per-task runtime overrides used by generalist configs. Keys are task
+# names. Checkpoint, norm_stats, opendm_root/code_root, policy_type, and
+# policy_robot_type remain model-level settings shared by the generalist model.
+# Supported per-task fields: action_type, action_horizon,
+# action_playback_target_steps, duration, resize_name, runtime_args, image_type,
+# debug, debug_image_limit.
+task_overrides: {}
+
+# OpenDM checkout on PYTHONPATH. Prefer exporting OPENDM_ROOT; leave empty if
+# the ``opendm`` package is already installed in the environment.
+opendm_root: ${oc.env:OPENDM_ROOT,""}
+
+# Robot runtime defaults. Task configs can override any top-level field above,
+# and runtime_args can override robot_profiles.<robot>.runtime_args.
+robot_profiles:
+  arx5:
+    policy_type: dm05
+    policy_robot_type: arx5
+    code_root: ${opendm_root}
+    action_type: leftpos
+    action_horizon: 50
+    action_playback_target_steps: 25
+    duration: 0.05
+    runtime_args:
+      backend: fast
+      vision_trt_engine_path: checkpoints/trt_engines/dm05_arx5_h8.engine
+      single_arm_target: eef
+      action_mode: relative
+      # Logical-step history with unused0/unused1 slot pads.
+      history_mode: logical_step
+      is_history: true
+      history_max_frames: 5
+      add_state: true
+      speed: 0.5
+      resize_name: padding
+      llm_attn_implementation: sdpa
+      vision_attn_implementation: flash_attention_2
+      action_attn_implementation: sdpa
+  ur5:
+    policy_type: dm05
+    policy_robot_type: ur5
+    code_root: ${opendm_root}
+    action_type: leftpos
+    action_horizon: 25
+    action_playback_target_steps: 0
+    duration: 0.05
+    runtime_args:
+      backend: fast
+      vision_trt_engine_path: checkpoints/trt_engines/dm05_ur5_h2.engine
+      single_arm_target: eef
+      action_mode: relative
+      is_history: false
+      ur5_anchor_pitch_zero: true
+      add_state: true
+      speed: 0.5
+      resize_name: padding
+      llm_attn_implementation: sdpa
+      vision_attn_implementation: flash_attention_2
+      action_attn_implementation: sdpa
+  aloha:
+    policy_type: dm05
+    policy_robot_type: aloha
+    code_root: ${opendm_root}
+    action_type: joint
+    action_horizon: 25
+    duration: 0.05
+    runtime_args:
+      backend: fast
+      vision_trt_engine_path: checkpoints/trt_engines/dm05_aloha_h3.engine
+      action_mode: relative
+      is_history: false
+      add_state: true
+      speed: 0.5
+      resize_name: padding
+      # Pin diffusion RNG each step for replay/align stability.
+      inference_seed: 0
+  w1:
+    policy_type: dm05
+    policy_robot_type: w1
+    code_root: ${opendm_root}
+    action_type: joint
+    action_horizon: 25
+    duration: 0.05
+    runtime_args:
+      backend: fast
+      vision_trt_engine_path: checkpoints/trt_engines/dm05_w1_h3.engine
+      action_mode: relative
+      is_history: false
+      add_state: true
+      speed: 0.5
+      resize_name: padding
+      llm_attn_implementation: auto
+      vision_attn_implementation: auto
+      action_attn_implementation: auto
+
+
+# Log directory
+log_dir: "./logs"
+
+# Online mode parameters
+user_id: ""
+submission_id: ""
+run_id: ""

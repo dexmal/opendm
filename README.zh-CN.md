@@ -252,6 +252,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 - LIBERO：[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)
 - RoboTwin2.0：[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)
 - SO101：[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
+- RoboChallenge Table 30 v2：[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)
 
 ## 使用指南
 
@@ -259,7 +260,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 - 准备数据：参考 [OpenDM 数据使用指南](docs/zh/data.md)
 - 启动推理服务：参考 [DM05 推理指南](docs/zh/dm05_inference.md)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
-- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)和[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
+- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)、[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)和[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 
 ## 社区与支持
 

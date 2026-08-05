@@ -1,0 +1,8 @@
+requests
+numpy
+loguru
+opencv-python
+pillow
+hydra-core
+omegaconf
+scipy

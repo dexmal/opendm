@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - ../default
+  - _self_
+
+robot_type: aloha
+checkpoint: ${oc.env:ALOHA_CHECKPOINT}
+norm_stats: ${oc.env:ALOHA_NORM_STATS,""}
+action_type: joint
+action_horizon: 25
+
+task_overrides:
+  lint_roller_remove_dirt:
+    action_horizon: 25
+  pack_the_items:
+    action_horizon: 25
+  pack_the_toothbrush_holder:
+    action_horizon: 25
+  paint_jam:
+    action_horizon: 25
+  put_the_books_back:
+    action_horizon: 15
+  put_the_pencil_case_into_the_schoolbag:
+    action_horizon: 25
+  scoop_with_a_small_spoon:
+    action_horizon: 25
+  stamp_positioning:
+    action_horizon: 45
+  wipe_the_blackboard:
+    action_horizon: 15
+  wrap_with_a_soft_cloth:
+    action_horizon: 25
