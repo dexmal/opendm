@@ -10,13 +10,39 @@
 所有命令都在 OpenDM 仓库根目录运行。请准备：
 
 - 按照主 README 安装完成的 OpenDM 环境。
+- 如果要使用 `--inference-config.backend fast`，还需要在同一个环境中执行
+  `pip install -e ".[fast-infer]"` 安装额外依赖层。
 - 与所选 playground 入口匹配的 DM05 checkpoint。
 - checkpoint 目录下与训练配置匹配的 `norm_stats.json`。如果不存在，OpenDM 会回退到
   `./norm_stats/` 下的匹配文件。
-- 一张 NVIDIA GPU。fast backend 还需要 TensorRT 和 Triton。
+- 一张 NVIDIA GPU。
 
 Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度和归一化统计
 必须来自同一套训练配置。
+
+对于 fast backend，还需要满足和代码路径一致的运行前置条件：
+
+- TensorRT 不是可选项。fast 启动时会先构建或加载 vision TensorRT engine，然后才开始
+  对外提供服务。
+- Triton 不是可选项。fast suffix big-kernel 和 fast prefix decoder path 都会直接导入并
+  调用 Triton kernels。
+- PyTorch FlexAttention 支持是必需项。fast 推理会强制把 LLM attention backend 切到
+  `flex_attention`，而 static prefix fastpath 也会逐层校验 decoder layer 是否使用该 backend。
+- 请使用提供 `torch.nn.attention.flex_attention` 的 PyTorch 版本，例如 `torch>=2.5`。
+
+### Fast Backend 启动前检查
+
+第一次启动 fast backend 前，请确认：
+
+- 目标环境中 CUDA GPU 可见。
+- 当前环境已经执行过 `pip install -e ".[fast-infer]"`。
+- `python -c "import tensorrt"` 可以成功执行。
+- `python -c "import triton"` 可以成功执行。
+- `python -c "import torch.nn.attention.flex_attention"` 可以成功执行。
+- checkpoint、playground 入口、`chunk_size`、action 维度和 `image_keys` 来自同一轮训练。
+- 上传图片的数量和顺序与 `--inference-config.image-keys` 完全一致。
+- 为第一次启动预留额外时间，因为服务会先导出 ONNX 并构建 TensorRT engine，之后 HTTP
+  服务才会就绪。
 
 ## 2. 选择推理入口
 
@@ -122,11 +148,15 @@ script/dm05_launcher.sh \
 Fast backend 使用 TensorRT vision encoder、优化后的 attention/MLP kernels 和启动时
 预捕获的 CUDA Graph profiles 来降低推理延迟。
 
-安装可选依赖：
+安装 fast backend 必需的依赖层：
 
 ```bash
 pip install -e ".[fast-infer]"
 ```
+
+`fast-infer` 会安装 `onnx`、`triton==3.6.0` 和 `tensorrt`。fast backend 缺少这些组件时
+不会自动回退：TensorRT 用于准备 vision engine，Triton 是 prefix/suffix fast kernels 的
+硬依赖，而 PyTorch 中也必须提供 `flex_attention`。
 
 在对应的 default backend 命令中加入 `--inference-config.backend fast`。如果不传
 `--inference-config.vision-trt-engine-path`，默认 engine 路径是
@@ -144,9 +174,11 @@ script/dm05_launcher.sh \
   --inference-config.port 7891
 ```
 
-如果 engine 不存在，launcher 会在 HTTP 服务启动前自动构建。每个 checkpoint 和图片
-布局应使用独立的 engine 路径。现有 engine 目前只按图片数量决定是否复用，因此更换
-checkpoint 时必须换新路径，或者传 `--inference-config.force-rebuild`。
+如果 engine 不存在，launcher 不会立刻对外提供服务，而是会先导出 ONNX、构建
+TensorRT engine，再继续完成配置好的 CUDA Graph profiles capture，最后 HTTP 服务才会
+就绪。每个 checkpoint 和图片布局应使用独立的 engine 路径。现有 engine 目前只按图片
+数量决定是否复用，因此更换 checkpoint 时必须换新路径，或者传
+`--inference-config.force-rebuild`。
 
 手动构建 engine：
 
@@ -162,6 +194,8 @@ python -m opendm.infer.build_vision_trt \
 
 ### Fast Backend 约束
 
+- 服务就绪时间包含 TensorRT engine 准备和 CUDA Graph profile capture；第一次启动通常会
+  比 default backend 明显更慢。
 - 请求使用 batch size 1，服务串行处理请求。
 - `diffusion_steps` 在服务启动并 capture profiles 后固定。
 - 预处理后的 multimodal prefix 最长为 1024 tokens。
@@ -300,6 +334,7 @@ Legacy 成功响应保持历史格式：
 | 找不到归一化统计或统计不匹配 | 使用 checkpoint 的 `norm_stats.json`，并保持 dataset/action/chunk 配置与训练一致。 |
 | State 或 action 维度错误 | 让 `observation.state` 和 `output_action_dim` 与归一化向量维度一致。 |
 | 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_keys` 一致。 |
+| Fast 启动阶段出现 import 错误 | 在当前环境重新执行 `pip install -e ".[fast-infer]"`，并检查 `import tensorrt`、`import triton`、`import torch.nn.attention.flex_attention` 是否成功。 |
 | TensorRT 图片数量不匹配 | 使用与 image keys 数量相同的 `--num-images` 重建 engine。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |
 | Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 1024。 |

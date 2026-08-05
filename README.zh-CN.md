@@ -75,6 +75,9 @@ RTX 4090, A100, H100, H20
 训练建议使用 8 卡，部署推理使用 1 卡即可
 ```
 
+下面的基础环境只覆盖训练和 default backend 推理。fast backend 还需要单独安装
+TensorRT Python/runtime、Triton，以及支持 PyTorch FlexAttention 的环境。
+
 ### Docker 安装
 
 ```bash
@@ -93,6 +96,9 @@ conda activate opendm
 pip install -e .
 ```
 
+以上命令只会创建基础 OpenDM 环境。如果要使用
+`--inference-config.backend fast`，还需要继续安装下面的 fast backend 环境层。
+
 ### 本地安装
 
 ```bash
@@ -110,9 +116,37 @@ cd opendm
 pip install -e .
 ```
 
+### Fast Backend 环境层
+
+上面的 Docker / 本地安装还不足以运行 `--inference-config.backend fast`。请在同一个
+`opendm` 环境中继续安装 fast 推理依赖层：
+
+```bash
+pip install -e ".[fast-infer]"
+```
+
+`fast-infer` extra 会安装 `onnx`、`triton==3.6.0` 和 `tensorrt`。Fast 启动不是“能用就
+加速、不能用就回退”的可选优化：OpenDM 会直接构建或加载 TensorRT vision engine，
+调用 Triton prefix/suffix kernels，并强制把 LLM attention backend 切到
+`flex_attention`。因此 TensorRT、Triton 和 PyTorch FlexAttention 支持都是 fast 推理
+的前置条件。
+
+启动 fast backend 前，先在当前环境确认：
+
+```bash
+python -c "import tensorrt"
+python -c "import triton"
+python -c "import torch.nn.attention.flex_attention"
+```
+
+请使用提供 `torch.nn.attention.flex_attention` 的 PyTorch 版本，例如 `torch>=2.5`。
+同时要预留首次 fast 启动时间：每个 checkpoint / image layout 第一次启动时，服务会先
+导出 ONNX 并构建 TensorRT engine，之后 HTTP 服务才会就绪。
+
 ## 推理
 
-支持的 checkpoint、default/fast backend 启动命令、HTTP API、运行约束和问题排查统一参考 [DM05 推理指南](docs/zh/dm05_inference.md)。
+支持的 checkpoint、default/fast backend 启动命令、fast backend 启动前检查、HTTP API、
+运行约束和问题排查统一参考 [DM05 推理指南](docs/zh/dm05_inference.md)。
 新的接入方优先使用 `/v1/infer`。旧的 `/process_frame` multipart 接口仍作为 legacy 兼容路径保留，但会逐步被替换。
 
 ## 训练

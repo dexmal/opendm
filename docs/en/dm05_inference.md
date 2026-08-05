@@ -11,14 +11,44 @@ inference setup.
 Run all commands from the OpenDM repository root. Prepare:
 
 - An OpenDM environment installed according to the main README.
+- If you will use `--inference-config.backend fast`, install the additional
+  dependency layer in that same environment with `pip install -e ".[fast-infer]"`.
 - A DM05 checkpoint compatible with the selected playground entry point.
 - The matching `norm_stats.json` in the checkpoint directory. If it is absent,
   OpenDM falls back to the matching file under `./norm_stats/`.
-- One NVIDIA GPU. The fast backend additionally requires TensorRT and Triton.
+- One NVIDIA GPU.
 
 The checkpoint, playground entry point, `chunk_size`, image keys, state/action
 dimensions, and normalization statistics must come from the same training
 configuration.
+
+For the fast backend, also keep these runtime prerequisites aligned with the
+code path:
+
+- TensorRT is required, not optional. Fast startup builds or loads the vision
+  TensorRT engine before serving requests.
+- Triton is required, not optional. The fast suffix big-kernel path and the
+  fast prefix decoder path both import and dispatch Triton kernels.
+- PyTorch FlexAttention support is required. Fast inference forces the LLM
+  attention backend to `flex_attention`, and the static prefix fastpath checks
+  every decoder layer for that backend.
+- Use a PyTorch build that provides
+  `torch.nn.attention.flex_attention` (for example `torch>=2.5`).
+
+### Fast Backend Preflight Checklist
+
+Before the first fast launch, confirm:
+
+- CUDA GPU is visible in the target environment.
+- `pip install -e ".[fast-infer]"` has completed in that environment.
+- `python -c "import tensorrt"` succeeds.
+- `python -c "import triton"` succeeds.
+- `python -c "import torch.nn.attention.flex_attention"` succeeds.
+- The checkpoint, playground entry point, `chunk_size`, action dimension, and
+  `image_keys` all come from the same training run.
+- The uploaded image count and order match `--inference-config.image-keys`.
+- Extra time is reserved for the first startup to export ONNX and build the
+  TensorRT engine before the HTTP service becomes ready.
 
 ## 2. Choose an Entry Point
 
@@ -129,11 +159,16 @@ script/dm05_launcher.sh \
 The fast backend uses a TensorRT vision encoder, optimized attention and MLP
 kernels, and startup-captured CUDA Graph profiles to reduce latency.
 
-Install the optional dependencies:
+Install the required fast-backend dependency layer:
 
 ```bash
 pip install -e ".[fast-infer]"
 ```
+
+`fast-infer` installs `onnx`, `triton==3.6.0`, and `tensorrt`. The fast backend
+does not fall back when these pieces are missing: TensorRT is used to prepare
+the vision engine, Triton is required by the fast prefix/suffix kernels, and
+`flex_attention` must be available in PyTorch.
 
 Add `--inference-config.backend fast` to the matching default backend command.
 If `--inference-config.vision-trt-engine-path` is not provided, the default
@@ -151,8 +186,10 @@ script/dm05_launcher.sh \
   --inference-config.port 7891
 ```
 
-If the engine does not exist, the launcher builds it before starting the HTTP
-service. Use a separate engine path for each checkpoint and image layout. An
+If the engine does not exist, the launcher does not start serving immediately.
+It first exports ONNX and builds the TensorRT engine, then continues startup and
+captures the configured CUDA Graph profiles before the HTTP service becomes
+ready. Use a separate engine path for each checkpoint and image layout. An
 existing engine is currently reused based on its image count, so changing the
 checkpoint requires a new path or `--inference-config.force-rebuild`.
 
@@ -171,6 +208,8 @@ python -m opendm.infer.build_vision_trt \
 
 ### Fast Backend Constraints
 
+- Startup readiness includes TensorRT engine preparation and CUDA Graph profile
+  capture; the first launch is expected to take longer than the default backend.
 - Requests use batch size 1 and are processed serially by the service.
 - `diffusion_steps` is fixed when the service captures its profiles at startup.
 - The processed multimodal prefix is limited to 1024 tokens.
@@ -325,6 +364,7 @@ A successful legacy response returns the historical shape:
 | Missing or mismatched normalization statistics | Use the checkpoint's `norm_stats.json` and the same dataset/action/chunk configuration as training. |
 | State or action dimension error | Match `observation.state` and `output_action_dim` to the normalization vectors. |
 | Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_keys`. |
+| Fast backend fails during startup with import errors | In the active environment, reinstall `pip install -e ".[fast-infer]"` and verify `import tensorrt`, `import triton`, and `import torch.nn.attention.flex_attention`. |
 | TensorRT image-count mismatch | Rebuild the engine with `--num-images` equal to the number of image keys. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |
 | Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most 1024. |

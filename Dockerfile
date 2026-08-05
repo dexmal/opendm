@@ -46,7 +46,11 @@ RUN /bin/bash -c "source activate opendm && \
 COPY . /app/opendm/
 WORKDIR /app/opendm/
 
-RUN /bin/bash -c "source activate opendm && pip install -e ."
+# Install both the base package and the fast-inference dependency layer so the
+# image can run either backend without extra container-local setup.
+RUN /bin/bash -c "source activate opendm && \
+        pip install -e . && \
+        pip install -e '.[fast-infer]'"
 
 RUN /opt/conda/bin/conda init bash
 

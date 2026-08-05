@@ -78,6 +78,10 @@ RTX 4090, A100, H100, H20
 8 GPUs are recommended for training, and 1 GPU is sufficient for deployment inference.
 ```
 
+The base environment below covers training and the default inference backend.
+The fast backend additionally requires TensorRT Python/runtime, Triton, and
+PyTorch FlexAttention support.
+
 ### Docker Installation
 
 ```bash
@@ -96,6 +100,10 @@ conda activate opendm
 pip install -e .
 ```
 
+The commands above create the base OpenDM environment. Before using
+`--inference-config.backend fast`, continue with the fast-backend environment
+layer below.
+
 ### Local Installation
 
 ```bash
@@ -113,9 +121,40 @@ cd opendm
 pip install -e .
 ```
 
+### Fast Backend Environment Layer
+
+The Docker and local installation steps above are not enough for
+`--inference-config.backend fast`. Activate the same `opendm` environment and
+install the fast inference dependency layer:
+
+```bash
+pip install -e ".[fast-infer]"
+```
+
+The `fast-infer` extra installs `onnx`, `triton==3.6.0`, and `tensorrt`. Fast
+startup is not a best-effort acceleration toggle: OpenDM builds or loads a
+TensorRT vision engine, dispatches Triton prefix/suffix kernels, and forces the
+LLM attention backend to `flex_attention`. TensorRT, Triton, and PyTorch
+FlexAttention support are therefore required prerequisites for fast inference.
+
+Before launching the fast backend, verify the active environment:
+
+```bash
+python -c "import tensorrt"
+python -c "import triton"
+python -c "import torch.nn.attention.flex_attention"
+```
+
+Use a PyTorch build that provides `torch.nn.attention.flex_attention` (for
+example `torch>=2.5`). Also expect the first fast launch for each
+checkpoint/image layout to spend extra time exporting ONNX and building the
+TensorRT engine before the HTTP service becomes ready.
+
 ## Inference
 
-See the [DM05 Inference Guide](docs/en/dm05_inference.md) for supported checkpoints, default and fast backend commands, HTTP API usage, runtime constraints, and troubleshooting.
+See the [DM05 Inference Guide](docs/en/dm05_inference.md) for supported
+checkpoints, default and fast backend commands, the fast-backend preflight
+checklist, HTTP API usage, runtime constraints, and troubleshooting.
 Use `/v1/infer` for new integrations. The older `/process_frame` multipart API remains available as a legacy compatibility path and will be phased out over time.
 
 ## Training
