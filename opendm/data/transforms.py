@@ -506,7 +506,7 @@ class ChatTokenization:
             text_parts.append(f"Robot: {meta['robot_type']}\n")
         if meta.get("control_mode") is not None:
             text_parts.append(f"Control mode: {meta['control_mode']}\n")
-        speed = meta.get("speed", "0.5")
+        speed = meta.get("speed") or "0.5"
         assert isinstance(speed, str), (
             f"Expected speed to be a string, got {type(speed)}"
         )

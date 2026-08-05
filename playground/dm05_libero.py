@@ -1,12 +1,8 @@
-import json
 import os
 from dataclasses import dataclass, field
 from typing import Literal
 
-import numpy as np
 import tyro
-from flask import request
-from PIL import Image
 
 from opendm.constants.robot import ActionMode, RobotType
 from opendm.data.augmentations import NoAugmentationPipeline
@@ -135,35 +131,10 @@ class DM05InferenceConfig(_DM05InferenceConfig):
     output_action_dim: int = field(default=7)
     image_keys: list[str] = field(default_factory=lambda: ["images_1", "images_2"])
 
-    def _prepare_input(self) -> dict:
-        images = request.files.getlist("image", None)
-        states = request.form.get("states", None)
-        text = request.form.get("text", "")
-        robot_type = request.form.get("robot_type", "Franka")
-        speed = request.form.get("speed", "0.5")
-        control_mode = request.form.get("control_mode")
-
-        assert robot_type == RobotType.FRANKA.value, (
-            f"Unsupported robot_type {robot_type!r}. Only {RobotType.FRANKA.value} is supported."
-        )
-        state_desc = LIBERO_8D_STATE_DESC
-
-        pil_images = {
-            self.image_keys[i]: Image.open(img).convert("RGB")
-            for i, img in enumerate(images)
-        }
-        state = np.array(json.loads(states), dtype=np.float32)
-
+    def _request_default_overrides(self) -> dict:
         return {
-            **pil_images,
-            "prompt": text,
-            "state": state,
-            "meta_data": {
-                "robot_type": robot_type,
-                "speed": str(speed),
-                "control_mode": control_mode,
-                "state_desc": state_desc,
-            },
+            "default_robot_type": RobotType.FRANKA.value,
+            "default_state_desc": list(LIBERO_8D_STATE_DESC),
         }
 
 

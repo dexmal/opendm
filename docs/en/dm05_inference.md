@@ -192,31 +192,104 @@ All configured profiles are captured before the HTTP service becomes ready.
 
 ## 5. Call the HTTP API
 
-The service exposes `POST /process_frame` with `multipart/form-data`. A LIBERO
-request with two images looks like:
+The service exposes `POST /v1/infer` with a JSON body. Images are sent as
+base64 strings keyed by contiguous 1-based slot names, which keeps the API
+consistent across benchmark checkpoints, demo checkpoints, and custom SFT
+services.
+
+`POST /process_frame` remains available as a legacy multipart endpoint for
+existing clients. New integrations should use `/v1/infer`. The legacy endpoint
+will be phased out over time.
+
+A LIBERO request with two images looks like:
+
+```bash
+curl -X POST http://127.0.0.1:7891/v1/infer \
+  -H 'Content-Type: application/json' \
+  --data @- <<'EOF'
+{
+  "observation": {
+    "prompt": "pick up the black bowl and place it on the plate",
+    "state": [0, 0, 0, 0, 0, 0, 0, 0],
+    "images": {
+      "1": "<base64-agentview>",
+      "2": "<base64-wrist>"
+    },
+    "robot_type": "Franka"
+  }
+}
+EOF
+```
+
+Request fields:
+
+- `observation.prompt`: task instruction. It defaults to an empty string.
+- `observation.state`: required one-dimensional JSON array. Its length and
+  ordering must match the checkpoint's normalization statistics.
+- `observation.images`: required JSON object of base64-encoded images. Keys must
+  be contiguous 1-based strings such as `"1"`, `"2"`, `"3"`, and the order must
+  match `image_keys`.
+- `observation.robot_type`: optional robot embodiment used for state/action
+  semantics. Benchmark entry points inherit dataset defaults such as `Franka`
+  and `Aloha RoboTwin2`; custom relative-action entries may need this field
+  explicitly.
+- `observation.control_mode` and `observation.speed`: optional text-conditioning
+  fields. The service defaults `speed` to `"0.5"`; provide both fields when the
+  checkpoint was trained with them.
+- `sampling`: optional JSON object. `num_steps` must match the service's fixed
+  diffusion steps, and `seed` can be used for deterministic sampling.
+
+A successful response contains the action chunk and end-to-end API latency in
+milliseconds:
+
+```json
+{
+  "actions": [
+    [0.012, -0.034, 0.18, 0.0, 0.0, 0.0, -1.0],
+    [0.015, -0.031, 0.17, 0.0, 0.0, 0.0, -1.0]
+  ],
+  "metadata": {
+    "latency_ms": 123.4
+  }
+}
+```
+
+For the built-in demo checkpoint and its three-image request format, you can
+also run:
+
+```bash
+bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+```
+
+### Legacy `/process_frame` API
+
+The legacy compatibility endpoint accepts `multipart/form-data` with repeated
+`image` file fields.
 
 ```bash
 curl -X POST http://127.0.0.1:7891/process_frame \
   -F 'text=pick up the black bowl and place it on the plate' \
   -F 'states=[0,0,0,0,0,0,0,0]' \
+  -F 'robot_type=Franka' \
   -F image=@/path/to/agentview.jpg \
   -F image=@/path/to/wrist.jpg
 ```
 
-Request fields:
+Legacy request fields:
 
 - `text`: task instruction. It defaults to an empty string.
 - `states`: required one-dimensional JSON array. Its length and ordering must
   match the checkpoint's normalization statistics.
 - `image`: repeated image file field. The count and order must match
   `image_keys`.
-- `robot_type`: robot embodiment used for state/action semantics. LIBERO and
-  RoboTwin entry points default to `Franka` and `Aloha RoboTwin2`, respectively.
-  Custom relative-action entries may require this field explicitly.
-- `control_mode` and `speed`: optional text-conditioning fields. Provide them
-  when the checkpoint was trained with these fields.
+- `robot_type`: optional robot embodiment used for state/action semantics.
+  Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
+  RoboTwin2`; custom relative-action entries may need this field explicitly.
+- `control_mode` and `speed`: optional text-conditioning fields. The service
+  defaults `speed` to `"0.5"`; provide both fields when the checkpoint was
+  trained with them.
 
-A successful response contains the action chunk and model-only latency:
+A successful legacy response returns the historical shape:
 
 ```json
 {
@@ -226,17 +299,6 @@ A successful response contains the action chunk and model-only latency:
   ],
   "model_latency_ms": 71.884
 }
-```
-
-`model_latency_ms` measures the synchronized model call. It does not include
-request parsing, image decoding, tokenization, normalization, or response
-serialization.
-
-For the built-in demo checkpoint and its three-image request format, you can
-also run:
-
-```bash
-bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
 ```
 
 ## 6. Common Parameters
@@ -261,8 +323,8 @@ bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
 | Error or symptom | Check |
 | --- | --- |
 | Missing or mismatched normalization statistics | Use the checkpoint's `norm_stats.json` and the same dataset/action/chunk configuration as training. |
-| State or action dimension error | Match `states` and `output_action_dim` to the normalization vectors. |
-| Wrong number of uploaded images | Send exactly one image per configured `image_key`, in the same order. |
+| State or action dimension error | Match `observation.state` and `output_action_dim` to the normalization vectors. |
+| Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_keys`. |
 | TensorRT image-count mismatch | Rebuild the engine with `--num-images` equal to the number of image keys. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |
 | Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most 1024. |

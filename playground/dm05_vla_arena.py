@@ -136,7 +136,7 @@ class DM05InferenceConfig(_DM05InferenceConfig):
     output_action_dim: int = field(default=7)
     image_keys: list[str] = field(default_factory=lambda: ["images_1", "images_2"])
 
-    def _prepare_input(self) -> dict:
+    def _prepare_input_legacy(self) -> dict:
         images = request.files.getlist("image", None)
         states = request.form.get("states", None)
         text = request.form.get("text", "")

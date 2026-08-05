@@ -181,27 +181,90 @@ python -m opendm.infer.build_vision_trt \
 
 ## 5. 调用 HTTP API
 
-服务提供 `POST /process_frame`，请求格式为 `multipart/form-data`。一个包含两张图片的
-LIBERO 请求如下：
+服务提供 `POST /v1/infer`，请求格式为 JSON。图片通过 base64 字符串传入，并使用连续的
+1-based 槽位键名，这样 benchmark checkpoint、demo checkpoint 和自定义 SFT 服务都可
+以共用同一套接口。
+
+`POST /process_frame` 作为 legacy multipart 接口仍然保留，用于兼容已有客户端。新的
+接入方应优先使用 `/v1/infer`。这个 legacy 接口会逐步被替换。
+
+一个包含两张图片的 LIBERO 请求如下：
+
+```bash
+curl -X POST http://127.0.0.1:7891/v1/infer \
+  -H 'Content-Type: application/json' \
+  --data @- <<'EOF'
+{
+  "observation": {
+    "prompt": "pick up the black bowl and place it on the plate",
+    "state": [0, 0, 0, 0, 0, 0, 0, 0],
+    "images": {
+      "1": "<base64-agentview>",
+      "2": "<base64-wrist>"
+    },
+    "robot_type": "Franka"
+  }
+}
+EOF
+```
+
+请求字段：
+
+- `observation.prompt`：任务指令，默认是空字符串。
+- `observation.state`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
+- `observation.images`：必填 JSON 对象，值为 base64 编码图片。键名必须是连续的 1-based
+  字符串，例如 `"1"`、`"2"`、`"3"`，顺序必须与 `image_keys` 一致。
+- `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
+  继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
+- `observation.control_mode` 和 `observation.speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；
+  如果 checkpoint 训练时使用了这些字段，则应显式传入。
+- `sampling`：可选 JSON 对象。`num_steps` 必须与服务固定的 diffusion steps 一致，`seed`
+  可用于固定采样随机性。
+
+正常响应包含 action chunk 和端到端 API 延迟（毫秒）：
+
+```json
+{
+  "actions": [
+    [0.012, -0.034, 0.18, 0.0, 0.0, 0.0, -1.0],
+    [0.015, -0.031, 0.17, 0.0, 0.0, 0.0, -1.0]
+  ],
+  "metadata": {
+    "latency_ms": 123.4
+  }
+}
+```
+
+使用内置 demo checkpoint 及其三图请求格式时，也可以运行：
+
+```bash
+bash tests/curl_demo.sh http://127.0.0.1:7891/v1/infer
+```
+
+### Legacy `/process_frame` 接口
+
+兼容接口接收 `multipart/form-data`，并通过重复的 `image` 文件字段上传图片。
 
 ```bash
 curl -X POST http://127.0.0.1:7891/process_frame \
   -F 'text=pick up the black bowl and place it on the plate' \
   -F 'states=[0,0,0,0,0,0,0,0]' \
+  -F 'robot_type=Franka' \
   -F image=@/path/to/agentview.jpg \
   -F image=@/path/to/wrist.jpg
 ```
 
-请求字段：
+Legacy 请求字段：
 
 - `text`：任务指令，默认是空字符串。
 - `states`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
 - `image`：可重复的图片字段，数量和顺序必须与 `image_keys` 一致。
-- `robot_type`：用于说明 state/action 语义的机器人类型。LIBERO 和 RoboTwin 入口分别
-  默认使用 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
-- `control_mode` 和 `speed`：可选文本条件；checkpoint 训练时使用了这些字段才需要传入。
+- `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
+  例如 `Franka` 和 `Aloha RoboTwin2`；自定义 relative-action 入口可能要求显式传入。
+- `control_mode` 和 `speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；如果 checkpoint
+  训练时使用了这些字段，则应显式传入。
 
-正常响应包含 action chunk 和仅模型调用延迟：
+Legacy 成功响应保持历史格式：
 
 ```json
 {
@@ -211,15 +274,6 @@ curl -X POST http://127.0.0.1:7891/process_frame \
   ],
   "model_latency_ms": 71.884
 }
-```
-
-`model_latency_ms` 统计同步后的模型调用，不包含请求解析、图片解码、tokenization、
-归一化和响应序列化。
-
-使用内置 demo checkpoint 及其三图请求格式时，也可以运行：
-
-```bash
-bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
 ```
 
 ## 6. 常用参数
@@ -244,8 +298,8 @@ bash tests/curl_demo.sh http://127.0.0.1:7891/process_frame
 | 错误或现象 | 检查项 |
 | --- | --- |
 | 找不到归一化统计或统计不匹配 | 使用 checkpoint 的 `norm_stats.json`，并保持 dataset/action/chunk 配置与训练一致。 |
-| State 或 action 维度错误 | 让 `states` 和 `output_action_dim` 与归一化向量维度一致。 |
-| 上传图片数量错误 | 按 `image_keys` 的数量和顺序上传图片。 |
+| State 或 action 维度错误 | 让 `observation.state` 和 `output_action_dim` 与归一化向量维度一致。 |
+| 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_keys` 一致。 |
 | TensorRT 图片数量不匹配 | 使用与 image keys 数量相同的 `--num-images` 重建 engine。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |
 | Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 1024。 |
