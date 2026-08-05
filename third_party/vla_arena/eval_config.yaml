@@ -1,0 +1,43 @@
+# VLA-Arena Remote Model Evaluation Config
+# Used by: python -m vla_arena.models.vla_arena_dm05.eval --config eval_config.yaml
+
+# ----- HTTP inference server -----
+server_url: "http://<SERVER_IP>:7891/process_frame"
+request_timeout: 30          # seconds
+
+# ----- Model inference parameters -----
+action_horizon: 20           # actions generated per server request
+replan_steps: 10             # actions executed before next request
+robot_type: "Franka"
+batch_size: 1
+speed: "0.5"
+
+# ----- Task selection -----
+# "all" → evaluate all 170 tasks (11 suites × 3 levels)
+# or set a specific suite name, e.g. "safety_static_obstacles"
+task_suite_name: "all"
+task_level: 0                # only used when task_suite_name is NOT "all"
+
+# ----- Episode settings -----
+num_trials_per_task: 10      # episodes per task
+seeds: [7, 42, 1000]         # seeds to evaluate sequentially
+max_episode_retries: 2            # extra attempts per episode on infra/HTTP/env exception
+episode_retry_backoff_sec: 5.0    # base backoff seconds between episode retries
+
+# ----- Environment -----
+env_img_res: 256
+num_steps_wait: 10
+add_noise: false
+adjust_light: false
+randomize_color: false
+camera_offset: false
+safety: false
+init_state_selection_mode: "first"   # "first" | "episode_idx"
+init_state_offset: 0
+init_state_offset_random: false
+
+# ----- Output -----
+model_name: "DM05"
+local_log_dir: "./experiments/eval_results"
+save_video_mode: "first_success_failure"   # "all" | "first_success_failure" | "none"
+use_local_log: true
