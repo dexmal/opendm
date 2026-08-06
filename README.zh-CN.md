@@ -217,8 +217,22 @@ python -c "import torch.nn.attention.flex_attention"
 
 ## 推理
 
-支持的 checkpoint、default/fast backend 启动命令、fast backend 启动前检查、HTTP API、
-运行约束和问题排查统一参考 [DM05 推理指南](docs/zh/dm05_inference.md)。
+下载 DM05 基础预训练模型后，可以使用 default backend 启动推理服务：
+
+```bash
+script/dm05_launcher.sh \
+  --exp opendm/exp/dm05_exp.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.chunk-size 50 \
+  --inference-config.output-action-dim 14 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
+  --inference-config.port 7891
+```
+
+该示例使用三路图像输入和 14 维 state/action。不同机器人 profile、HTTP 请求字段、
+微调模型启动命令、fast backend 配置、运行约束和问题排查参考
+[DM05 推理指南](docs/zh/dm05_inference.md)。
 新的接入方优先使用 `/v1/infer`。旧的 `/process_frame` multipart 接口仍作为 legacy 兼容路径保留，但会逐步被替换。
 
 ## 训练

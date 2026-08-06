@@ -60,6 +60,7 @@ Before the first fast launch, confirm:
 
 | Use case | Entry point | Typical checkpoint | Chunk size | Images | Action dimension |
 | --- | --- | --- | ---: | ---: | ---: |
+| Base pretrained model | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
 | Demo or custom SFT | `playground/dm05_sft_demo.py` or your own entry | Your SFT checkpoint | Training value | Training value | Training value |
@@ -72,6 +73,38 @@ inference dimensions.
 
 The default backend uses the standard PyTorch inference path. The inference
 launcher starts one Python process directly, so `--nproc_per_node` is not needed.
+
+### DM05 Base Pretrained Model
+
+Download the base pretrained checkpoint:
+
+```bash
+hf download Dexmal/DM05 \
+  --local-dir ./checkpoints/DM05
+```
+
+Start the service:
+
+```bash
+script/dm05_launcher.sh \
+  --exp opendm/exp/dm05_exp.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.chunk-size 50 \
+  --inference-config.output-action-dim 14 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
+  --inference-config.port 7891
+```
+
+The base pretrained checkpoint uses three images and a 14-dimensional
+state/action. Set `observation.robot_type` to `DOS W1` or `Aloha` to select the
+matching normalization profile. If the field is omitted, the checkpoint's
+default profile, `DOS W1`, is used.
+
+Requests to the base pretrained model should explicitly provide
+`observation.control_mode` and `observation.speed` so that the input matches
+the pretraining conditions. If `observation.speed` is omitted, the service
+defaults it to `"0.5"`.
 
 ### LIBERO
 
@@ -285,9 +318,10 @@ Request fields:
   and `Aloha RoboTwin2`. Multi-robot checkpoints select profiles by the exact
   value, for example `Aloha` or `DOS W1`; custom relative-action entries may
   need this field explicitly.
-- `observation.control_mode` and `observation.speed`: optional text-conditioning
-  fields. The service defaults `speed` to `"0.5"`; provide both fields when the
-  checkpoint was trained with them.
+- `observation.control_mode` and `observation.speed`: text-conditioning fields.
+  Provide both explicitly when serving the `Dexmal/DM05` base pretrained
+  checkpoint. For SFT checkpoints, they are needed only when the training data
+  included them. The service defaults `speed` to `"0.5"`.
 - `sampling`: optional JSON object. `num_steps` must match the service's fixed
   diffusion steps, and `seed` can be used for deterministic sampling.
 
@@ -348,9 +382,10 @@ Legacy request fields:
   RoboTwin2`. Multi-robot checkpoints select profiles by the exact value, for
   example `Aloha` or `DOS W1`; custom relative-action entries may need this
   field explicitly.
-- `control_mode` and `speed`: optional text-conditioning fields. The service
-  defaults `speed` to `"0.5"`; provide both fields when the checkpoint was
-  trained with them.
+- `control_mode` and `speed`: text-conditioning fields. Provide both explicitly
+  when serving the `Dexmal/DM05` base pretrained checkpoint. For SFT
+  checkpoints, they are needed only when the training data included them. The
+  service defaults `speed` to `"0.5"`.
 
 A successful legacy response returns the historical shape:
 

@@ -222,9 +222,24 @@ TensorRT engine before the HTTP service becomes ready.
 
 ## Inference
 
-See the [DM05 Inference Guide](docs/en/dm05_inference.md) for supported
-checkpoints, default and fast backend commands, the fast-backend preflight
-checklist, HTTP API usage, runtime constraints, and troubleshooting.
+After downloading the DM05 base pretrained checkpoint, start its default
+inference service with:
+
+```bash
+script/dm05_launcher.sh \
+  --exp opendm/exp/dm05_exp.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.chunk-size 50 \
+  --inference-config.output-action-dim 14 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
+  --inference-config.port 7891
+```
+
+This example uses three images and a 14-dimensional state/action. See the
+[DM05 Inference Guide](docs/en/dm05_inference.md) for robot profile selection,
+HTTP request fields, fine-tuned checkpoint commands, fast backend setup,
+runtime constraints, and troubleshooting.
 Use `/v1/infer` for new integrations. The older `/process_frame` multipart API remains available as a legacy compatibility path and will be phased out over time.
 
 ## Training

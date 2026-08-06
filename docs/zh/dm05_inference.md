@@ -53,6 +53,7 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 
 | 使用场景 | 入口 | 常用 checkpoint | Chunk size | 图片数 | Action 维度 |
 | --- | --- | --- | ---: | ---: | ---: |
+| 基础预训练模型 | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
 | Demo 或自定义 SFT | `playground/dm05_sft_demo.py` 或自定义入口 | SFT checkpoint | 训练值 | 训练值 | 训练值 |
@@ -64,6 +65,36 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 
 Default backend 使用标准 PyTorch 推理路径。推理模式下 launcher 会直接启动一个 Python
 进程，不需要传 `--nproc_per_node`。
+
+### DM05 基础预训练模型
+
+下载基础预训练模型：
+
+```bash
+hf download Dexmal/DM05 \
+  --local-dir ./checkpoints/DM05
+```
+
+启动服务：
+
+```bash
+script/dm05_launcher.sh \
+  --exp opendm/exp/dm05_exp.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.chunk-size 50 \
+  --inference-config.output-action-dim 14 \
+  --inference-config.image-prompts "Head" "Left wrist" "Right wrist" \
+  --inference-config.port 7891
+```
+
+基础预训练模型使用三路图像输入和 14 维 state/action。将
+`observation.robot_type` 设为 `DOS W1` 或 `Aloha`，可以选择对应的归一化
+profile；省略该字段时使用 checkpoint 中配置的默认 profile `DOS W1`。
+
+直接使用基础预训练模型时，应显式提供 `observation.control_mode` 和
+`observation.speed`，使输入与预训练条件保持一致。省略
+`observation.speed` 时，服务默认使用 `"0.5"`。
 
 ### LIBERO
 
@@ -262,8 +293,9 @@ EOF
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
   继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值
   精确选择 profile，例如 `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
-- `observation.control_mode` 和 `observation.speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；
-  如果 checkpoint 训练时使用了这些字段，则应显式传入。
+- `observation.control_mode` 和 `observation.speed`：文本条件。直接使用 `Dexmal/DM05`
+  基础预训练模型时应显式传入；SFT checkpoint 仅在训练数据包含这些字段时需要传入。
+  服务默认 `speed` 为 `"0.5"`。
 - `sampling`：可选 JSON 对象。`num_steps` 必须与服务固定的 diffusion steps 一致，`seed`
   可用于固定采样随机性。
 
@@ -318,8 +350,9 @@ Legacy 请求字段：
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
   例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值精确选择 profile，例如
   `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
-- `control_mode` 和 `speed`：可选文本条件。服务默认 `speed` 为 `"0.5"`；如果 checkpoint
-  训练时使用了这些字段，则应显式传入。
+- `control_mode` 和 `speed`：文本条件。直接使用 `Dexmal/DM05` 基础预训练模型时应显式
+  传入；SFT checkpoint 仅在训练数据包含这些字段时需要传入。服务默认 `speed` 为
+  `"0.5"`。
 
 Legacy 成功响应保持历史格式：
 
