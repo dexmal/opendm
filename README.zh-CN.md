@@ -27,6 +27,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 - [2026-07-17] DM0.5 已开源 RoboTwin2.0 generalist 模型 checkpoint，以及基于 DM0.5 预训练模型的监督微调（SFT）代码。参考 [DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)。
 - [2026-07-09] DM0.5 正式发布。更多模型细节请阅读[技术博客](https://www.dexmal.com/blog/dm0.5/index.html)。
 
+
 ## 模型
 
 | 模型 | 描述 | 权重地址 |
@@ -35,6 +36,8 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 | DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 | DM05-SO101-Pick-Cube | 用于 SO101 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
+| DM05-VLA-Arena | 用于 VLA-Arena 评测的 DM0.5 微调模型 | [训练与评测](docs/zh/dm05_vla_arena.md) |
+| DM05-Table30v2 | 用于 RoboChallenge Table 30 v2 评测的 DM0.5 模型集合 | [🤗 Hugging Face Collection](https://huggingface.co/collections/Dexmal/dm05-table30v2) |
 
 模型下载示例：
 
@@ -44,17 +47,85 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
 
 ## Benchmark 结果
 
-### LIBERO
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Benchmark</th>
+      <th>Metric</th>
+      <th>DM0.5</th>
+      <th>Pi0</th>
+      <th>Pi0.5</th>
+      <th>GROOT-N1.7</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="6"><strong>Simulated Tasks</strong></td>
+      <td><strong><a href="docs/zh/dm05_libero.md">LIBERO</a></strong></td>
+      <td><strong>SR</strong></td>
+      <td align="right"><strong>99.0%</strong></td>
+      <td align="right">94.4%</td>
+      <td align="right">96.9%</td>
+      <td align="right">97.0%</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong><a href="docs/zh/dm05_robotwin2.md">RoboTwin2.0</a></strong></td>
+      <td><strong>Clean</strong></td>
+      <td align="right"><strong>93.6%</strong></td>
+      <td align="right">65.9%</td>
+      <td align="right">82.7%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>Rand</strong></td>
+      <td align="right"><strong>93.3%</strong></td>
+      <td align="right">58.4%</td>
+      <td align="right">76.8%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><strong><a href="docs/zh/dm05_vla_arena.md">VLA-Arena</a></strong></td>
+      <td><strong>L0</strong></td>
+      <td align="right"><strong>89.0%</strong></td>
+      <td align="right">82.3%</td>
+      <td align="right">64.3%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>L1</strong></td>
+      <td align="right"><strong>53.6%</strong></td>
+      <td align="right">32.2%</td>
+      <td align="right">35.6%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>L2</strong></td>
+      <td align="right"><strong>44.1%</strong></td>
+      <td align="right">11.4%</td>
+      <td align="right">24.5%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong>Real-World Tasks</strong></td>
+      <td rowspan="2"><strong><a href="docs/zh/dm05_robochallenge.md">RoboChallenge<br>Table30V2</a></strong></td>
+      <td><strong>Score</strong></td>
+      <td align="right"><strong>54.42</strong></td>
+      <td align="right">-</td>
+      <td align="right">31.48</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>SR</strong></td>
+      <td align="right"><strong>43.0%</strong></td>
+      <td align="right">-</td>
+      <td align="right">14.3%</td>
+      <td align="right">-</td>
+    </tr>
+  </tbody>
+</table>
 
-| 方法 | Spatial | Object | Goal | Long | 平均 | 参考 |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| DM0.5 | 99.0 | 99.8 | 99.6 | 97.4 | 99.0 | [训练与评测](docs/zh/dm05_libero.md) |
-
-### RoboTwin 2.0
-
-| 方法 | Clean | Randomized | 平均 | 参考 |
-| --- | ---: | ---: | ---: | --- |
-| DM0.5 | 93.6 | 93.3 | 93.5 | [训练与评测](docs/zh/dm05_robotwin2.md) |
+点击表格中的 Benchmark 名称，可查看 DM05 在对应数据集下的训练与评测文档。
 
 ## 快速开始
 

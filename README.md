@@ -36,6 +36,8 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 | DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 | DM05-SO101-Pick-Cube | SO101 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
+| DM05-VLA-Arena | VLA-Arena fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-Vla-Arena) |
+| DM05-Table30v2 | RoboChallenge Table 30 v2 DM0.5 model collection for evaluation | [🤗 Hugging Face](https://huggingface.co/collections/Dexmal/dm05-table30v2) |
 
 Example checkpoint download:
 
@@ -45,18 +47,85 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
 
 ## Benchmark Results
 
-### LIBERO Results
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>Benchmark</th>
+      <th>Metric</th>
+      <th>DM0.5</th>
+      <th>Pi0</th>
+      <th>Pi0.5</th>
+      <th>GROOT-N1.7</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="6"><strong>Simulated Tasks</strong></td>
+      <td><strong><a href="docs/en/dm05_libero.md">LIBERO</a></strong></td>
+      <td><strong>SR</strong></td>
+      <td align="right"><strong>99.0%</strong></td>
+      <td align="right">94.4%</td>
+      <td align="right">96.9%</td>
+      <td align="right">97.0%</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong><a href="docs/en/dm05_robotwin2.md">RoboTwin2.0</a></strong></td>
+      <td><strong>Clean</strong></td>
+      <td align="right"><strong>93.6%</strong></td>
+      <td align="right">65.9%</td>
+      <td align="right">82.7%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>Rand</strong></td>
+      <td align="right"><strong>93.3%</strong></td>
+      <td align="right">58.4%</td>
+      <td align="right">76.8%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><strong><a href="docs/en/dm05_vla_arena.md">VLA-Arena</a></strong></td>
+      <td><strong>L0</strong></td>
+      <td align="right"><strong>89.0%</strong></td>
+      <td align="right">82.3%</td>
+      <td align="right">64.3%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>L1</strong></td>
+      <td align="right"><strong>53.6%</strong></td>
+      <td align="right">32.2%</td>
+      <td align="right">35.6%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>L2</strong></td>
+      <td align="right"><strong>44.1%</strong></td>
+      <td align="right">11.4%</td>
+      <td align="right">24.5%</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong>Real-World Tasks</strong></td>
+      <td rowspan="2"><strong><a href="docs/en/dm05_robochallenge.md">RoboChallenge<br>Table30V2</a></strong></td>
+      <td><strong>Score</strong></td>
+      <td align="right"><strong>54.42</strong></td>
+      <td align="right">-</td>
+      <td align="right">31.48</td>
+      <td align="right">-</td>
+    </tr>
+    <tr>
+      <td><strong>SR</strong></td>
+      <td align="right"><strong>43.0%</strong></td>
+      <td align="right">-</td>
+      <td align="right">14.3%</td>
+      <td align="right">-</td>
+    </tr>
+  </tbody>
+</table>
 
-| Method | Spatial | Object | Goal | Long | Average | Reference |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| DM0.5 | 99.0 | 99.8 | 99.6 | 97.4 | 99.0 | [Training & Evaluation](docs/en/dm05_libero.md) |
-
-
-### RoboTwin 2.0 Results
-
-| Method | Clean | Randomized | Average | Reference |
-| --- | ---: | ---: | ---: | --- |
-| DM0.5 | 93.6 | 93.3 | 93.5 | [Training & Evaluation](docs/en/dm05_robotwin2.md) |
+Click a benchmark name to view the corresponding DM05 training and evaluation guide.
 
 
 ## Quick Start
