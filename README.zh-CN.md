@@ -36,8 +36,8 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 | DM05-libero | 用于 LIBERO 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | 用于 RoboTwin2.0 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 | DM05-SO101-Pick-Cube | 用于 SO101 评测的 DM0.5 微调模型 | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
-| DM05-VLA-Arena | 用于 VLA-Arena 评测的 DM0.5 微调模型 | [训练与评测](docs/zh/dm05_vla_arena.md) |
-| DM05-Table30v2 | 用于 RoboChallenge Table 30 v2 评测的 DM0.5 模型集合 | [🤗 Hugging Face Collection](https://huggingface.co/collections/Dexmal/dm05-table30v2) |
+| DM05-VLA-Arena | 用于 VLA-Arena 评测的 DM0.5 微调模型 | [训练与评测](docs/zh/dm05_vla_arena.md) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-Vla-Arena) |
+| DM05-Table30v2 | 用于 RoboChallenge Table 30 v2 评测的 DM0.5 模型集合 | [🤗 Hugging Face](https://huggingface.co/collections/Dexmal/dm05-table30v2) / [🤖 ModelScope](https://www.modelscope.cn/collections/Dexmal/DM05-Table30v2) |
 
 模型下载示例：
 
@@ -325,6 +325,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 
 - LIBERO：[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)
 - RoboTwin2.0：[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)
+- VLA-Arena：[DM05 VLA-Arena 训练与评测指南](docs/zh/dm05_vla_arena.md)
 - SO101：[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 - RoboChallenge Table 30 v2：[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)
 

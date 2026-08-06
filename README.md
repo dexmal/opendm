@@ -36,8 +36,8 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 | DM05-libero | LIBERO fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-libero) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-libero) |
 | DM05-robotwin2 | RoboTwin2.0 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-robotwin2) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-robotwin2) |
 | DM05-SO101-Pick-Cube | SO101 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
-| DM05-VLA-Arena | VLA-Arena fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-Vla-Arena) |
-| DM05-Table30v2 | RoboChallenge Table 30 v2 DM0.5 model collection for evaluation | [🤗 Hugging Face](https://huggingface.co/collections/Dexmal/dm05-table30v2) |
+| DM05-VLA-Arena | VLA-Arena fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-Vla-Arena) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-Vla-Arena) |
+| DM05-Table30v2 | RoboChallenge Table 30 v2 DM0.5 model collection for evaluation | [🤗 Hugging Face](https://huggingface.co/collections/Dexmal/dm05-table30v2) / [🤖 ModelScope](https://www.modelscope.cn/collections/Dexmal/DM05-Table30v2) |
 
 Example checkpoint download:
 
@@ -331,6 +331,7 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 
 - LIBERO: [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md)
 - RoboTwin2.0: [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md)
+- VLA-Arena: [DM05 VLA-Arena Training and Evaluation Guide](docs/en/dm05_vla_arena.md)
 - SO101: [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md)
 - RoboChallenge Table 30 v2: [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md)
 
