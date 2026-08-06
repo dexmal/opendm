@@ -25,8 +25,8 @@ LIBERO 的 episode 文件位于其注册 `jsonl_dir` 下的 `jsonl/` 子目录�
 [LIBERO 指南](dm05_libero.md)。
 
 这些位置与 `opendm/dataset/libero.py` 和 `opendm/dataset/robotwin2.py` 中的
-注册配置一致。如果数据位于其他位置，需要修改对应注册文件中的 `jsonl_dir`
-和 `image_dir`。
+注册配置一致。如果数据位于其他位置，训练时可传入 `--data-config.jsonl-dir`
+和 `--data-config.image-dir`。
 
 ## 2. 数据集目录结构
 
@@ -168,6 +168,9 @@ register_dataset({"pick": {...}}, prefix="my_robot")
 ```bash
 export OPENDM_DATA_PATH=/absolute/path/to/my_dataset_registry
 ```
+
+`OPENDM_DATA_PATH` 指向数据集注册 Python 模块，而不是原始数据目录。请使用唯一的
+模块名（例如 `custom_libero_paths.py`），避免与内置模块冲突。
 
 该目录使用相同的文件名规则，每个文件都应按上面的方式调用
 `register_dataset`。

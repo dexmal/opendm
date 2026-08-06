@@ -26,8 +26,8 @@ Follow the [RoboTwin 2.0 guide](dm05_robotwin2.md) to download and extract its
 archive. See the [LIBERO guide](dm05_libero.md) for the full LIBERO workflow.
 
 These locations match `opendm/dataset/libero.py` and
-`opendm/dataset/robotwin2.py`. If the data is stored elsewhere, update
-`jsonl_dir` and `image_dir` in the corresponding registration file.
+`opendm/dataset/robotwin2.py`. If the data is stored elsewhere, pass
+`--data-config.jsonl-dir` and `--data-config.image-dir` when training.
 
 ## 2. Dataset Layout
 
@@ -178,6 +178,10 @@ directory and set `OPENDM_DATA_PATH` before launching training:
 ```bash
 export OPENDM_DATA_PATH=/absolute/path/to/my_dataset_registry
 ```
+
+`OPENDM_DATA_PATH` points to registry Python modules, not to a raw dataset
+directory. Use unique module names (for example, `custom_libero_paths.py`) to
+avoid conflicts with built-in modules.
 
 The same filename rules apply to this directory, and each file should call
 `register_dataset` as shown above.

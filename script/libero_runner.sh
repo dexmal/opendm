@@ -30,7 +30,8 @@ Commands:
 
 Options:
   --dataset-repo REPO       HF dataset repo. Default: Dexmal/libero
-  --data-root DIR           Final LIBERO data root. Default: ./data/libero
+  --data-root DIR           Final LIBERO data root; also used by training.
+                            Default: ./data/libero
   --dataset-download-dir DIR
                             Temporary HF dataset download dir.
                             Default: ./data/.hf_downloads/libero
@@ -262,12 +263,16 @@ download_model() {
 }
 
 train_exp() {
+    DATA_ROOT="$(abspath "$DATA_ROOT")"
     log "Launching LIBERO SFT: $PROJECT_ROOT/playground/dm05_libero.py"
+    log "LIBERO data root: $DATA_ROOT"
     exec "$SCRIPT_DIR/dm05_launcher.sh" \
         --exp "$PROJECT_ROOT/playground/dm05_libero.py" \
         --nproc_per_node "$NPROC_PER_NODE" \
         -- \
         --task train \
+        --data-config.jsonl-dir "$DATA_ROOT/libero_pi0_all" \
+        --data-config.image-dir "$DATA_ROOT/libero_pi0_all/image" \
         "${TRAIN_ARGS[@]}"
 }
 

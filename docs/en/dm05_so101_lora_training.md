@@ -120,13 +120,17 @@ script/dm05_launcher.sh \
   --exp playground/dm05_so101_lora.py \
   --task train \
   --nproc_per_node 8 \
-  --model-config.model-name-or-path ./checkpoints/DM05
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.llm-attn-implementation sdpa \
+  --model-config.lora-config.dump-trainable-path \
+    user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json
 ```
 
 `playground/dm05_so101_lora.py` already provides the SO101 LoRA defaults,
 including dataset name, action mode, chunk size, attention settings, learning
 rate, warmup steps, batch size, save interval, and total training steps.
-Override these options only when you need to change the reference recipe.
+The reference command overrides LLM attention with SDPA for RTX 4090
+compatibility. Override other options only when you need to change the recipe.
 
 ## What Gets Trained
 
@@ -134,9 +138,9 @@ The LoRA configuration wraps every supported linear layer and saves selected
 DM05 action modules densely. The `dm05_time_modulators` alias expands to all
 action-expert input, MLP, and final time modulators.
 
-The trainable summary is written to
-`user_checkpoints/<output_dir>/trainable_summaries/dm05_lora_so101_pick_cube.json`
-by default. Check it before trusting a run:
+The reference command writes the trainable summary to
+`user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json`.
+Check it before trusting a run:
 
 - `target_modules` should resolve from `all-linear`.
 - `unexpected_trainable_parameters` should be empty.

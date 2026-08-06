@@ -238,6 +238,8 @@ class DM05TrainerConfig(Config):
 @dataclass
 class DM05DataConfig(Config):
     dataset_name: str = field(default="demo")
+    jsonl_dir: str | None = field(default=None)
+    image_dir: str | None = field(default=None)
     n_bins: int = field(default=256)
     action_mode: ActionMode = field(default=ActionMode.RELATIVE)
     compute_norm_stats_max_batches: int | None = field(default=None)
@@ -248,10 +250,15 @@ class DM05DataConfig(Config):
     def _dataset_info(self) -> dict:
         assert self.dataset_name in CONVERSATION_DATA
         dataset_info = CONVERSATION_DATA[self.dataset_name]
-        return {
+        dataset_info = {
             k: val.value if isinstance(val, Enum) else val
             for k, val in dataset_info.items()
         }
+        if self.jsonl_dir is not None:
+            dataset_info["jsonl_dir"] = self.jsonl_dir
+        if self.image_dir is not None:
+            dataset_info["image_dir"] = self.image_dir
+        return dataset_info
 
     def _dataset_meta(self, dataset_info: dict) -> dict:
         return {
@@ -432,7 +439,6 @@ class DM05InferenceConfig(Config):
         self.default_state_desc = self._request_default("default_state_desc")
         self.default_speed = str(self._request_default("default_speed", "0.5"))
         self.default_control_mode = self._request_default("default_control_mode")
-        model.to(self.device)
         model.eval()
         self.model = model
         self.is_history = is_history
@@ -455,6 +461,7 @@ class DM05InferenceConfig(Config):
                 force_rebuild=self.force_rebuild,
             )
             self.vision_trt_engine_path = str(engine_path)
+            model.to(self.device)
             self.fast_runtime = DM05FastInferRuntime(
                 dm05_model,
                 vision_trt_engine_path=engine_path,
@@ -468,6 +475,8 @@ class DM05InferenceConfig(Config):
             transform_max_length = min(
                 transform_max_length, self.fast_runtime.prefix_len
             )
+        else:
+            model.to(self.device)
 
         self.processor = AutoProcessor.from_pretrained(
             model_name_or_path,

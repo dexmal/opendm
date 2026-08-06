@@ -109,16 +109,19 @@ script/dm05_launcher.sh \
   --exp playground/dm05_so101_lora.py \
   --task train \
   --nproc_per_node 8 \
-  --model-config.model-name-or-path ./checkpoints/DM05
+  --model-config.model-name-or-path ./checkpoints/DM05 \
+  --model-config.llm-attn-implementation sdpa \
+  --model-config.lora-config.dump-trainable-path \
+    user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json
 ```
 
-`playground/dm05_so101_lora.py` 已经提供 SO101 LoRA 默认值，包括数据集名称、action mode、chunk size、attention 设置、学习率、warmup steps、batch size、保存间隔和总训练步数。只有在需要修改参考配置时才覆盖这些选项。
+`playground/dm05_so101_lora.py` 已经提供 SO101 LoRA 默认值，包括数据集名称、action mode、chunk size、attention 设置、学习率、warmup steps、batch size、保存间隔和总训练步数。参考命令为兼容 RTX 4090 显式使用 SDPA；只有在需要修改参考配置时才覆盖其他选项。
 
 ## 训练哪些参数
 
 LoRA 配置会用 LoRA 包装每个受支持的 linear layer，并密集保存选定的 DM05 action 模块。`dm05_time_modulators` 别名会展开为所有 action-expert 输入、MLP 和 final time modulators。
 
-默认情况下，可训练参数摘要会写入 `user_checkpoints/<output_dir>/trainable_summaries/dm05_lora_so101_pick_cube.json`。信任一次训练前，请先检查该文件：
+参考命令会将可训练参数摘要写入 `user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json`。信任一次训练前，请先检查该文件：
 
 - `target_modules` 应由 `all-linear` 解析得到。
 - `unexpected_trainable_parameters` 应为空。

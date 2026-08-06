@@ -62,6 +62,14 @@ To use a different data location:
 script/libero_runner.sh dataset --data-root /path/to/data/libero
 ```
 
+The `train` and `all` commands forward `--data-root` to the default
+`libero_pi0_all` training configuration. For direct launcher commands, pass:
+
+```bash
+--data-config.jsonl-dir /path/to/data/libero/libero_pi0_all \
+--data-config.image-dir /path/to/data/libero/libero_pi0_all/image
+```
+
 After download, `libero_pi0_all` should have this layout:
 
 ```text

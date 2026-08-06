@@ -54,6 +54,14 @@ script/libero_runner.sh dataset
 script/libero_runner.sh dataset --data-root /path/to/data/libero
 ```
 
+`train` 和 `all` 命令会将 `--data-root` 传递给默认的 `libero_pi0_all` 训练配置。
+直接使用启动脚本时传入：
+
+```bash
+--data-config.jsonl-dir /path/to/data/libero/libero_pi0_all \
+--data-config.image-dir /path/to/data/libero/libero_pi0_all/image
+```
+
 下载完成后，`libero_pi0_all` 应该具有如下结构：
 
 ```text
