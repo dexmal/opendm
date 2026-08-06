@@ -93,11 +93,11 @@ class DM05ModelConfig(_DM05ModelConfig):
     model_name_or_path: str | None = field(default=("./checkpoints/DM05"))
     chunk_size: int = field(default=50)
     llm_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = field(
-        default="flex_attention"
+        default="eager"
     )
     vision_attn_implementation: Literal[
         "auto", "eager", "sdpa", "flash_attention_2"
-    ] = field(default="flash_attention_2")
+    ] = field(default="sdpa")
     action_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = (
         field(default="sdpa")
     )

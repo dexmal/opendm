@@ -2,6 +2,8 @@
 
 本文档是使用 `playground/dm05_so101_lora.py` 在 SO101 数据上运行 DM05 LoRA SFT 的开发者参考。
 
+> **注意：** 训练和推理均需要 GPU 资源，推荐使用 A100、H100、H20 和 4090。
+
 ## 何时使用 LoRA
 
 当你希望在不更新完整模型参数的情况下将 DM05 适配到 SO101 时，可以使用 LoRA。该方法可以高效地针对 SO101 拾取立方体任务进行微调，同时保留基础模型的通用能力。
@@ -17,7 +19,7 @@
 | LR / warmup | `1e-4` / `1000` |
 | LoRA | 启用 (`use_lora=True`) |
 | 目标模块 | `all-linear` |
-| Attention | LLM `flex_attention`，vision `flash_attention_2`，action `sdpa` |
+| Attention | LLM `eager`，vision `sdpa`，action `sdpa` |
 | Gradient checkpointing | VLM GC 开启，AE GC 开启 |
 
 ## SO101 数据
@@ -110,12 +112,11 @@ script/dm05_launcher.sh \
   --task train \
   --nproc_per_node 8 \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.llm-attn-implementation sdpa \
   --model-config.lora-config.dump-trainable-path \
     user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json
 ```
 
-`playground/dm05_so101_lora.py` 已经提供 SO101 LoRA 默认值，包括数据集名称、action mode、chunk size、attention 设置、学习率、warmup steps、batch size、保存间隔和总训练步数。参考命令为兼容 RTX 4090 显式使用 SDPA；只有在需要修改参考配置时才覆盖其他选项。
+`playground/dm05_so101_lora.py` 已经提供 SO101 LoRA 默认值，包括数据集名称、action mode、chunk size、attention 设置、学习率、warmup steps、batch size、保存间隔和总训练步数。默认 attention 设置对 LLM 使用 `eager`，对 vision 和 action 使用 `sdpa`，以支持 RTX 4090。只有在需要修改参考配置时才覆盖其他选项。
 
 ## 训练哪些参数
 

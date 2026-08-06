@@ -3,6 +3,8 @@
 This page is the developer reference for running DM05 LoRA SFT on SO101 data
 from `playground/dm05_so101_lora.py`.
 
+> **Note:** Training and inference require GPU resources. Recommended GPUs include A100, H100, H20, and 4090.
+
 ## When to Use LoRA
 
 Use LoRA when you want to adapt DM05 to SO101 without updating the full model.
@@ -20,7 +22,7 @@ preserving the base model's general capabilities.
 | LR / warmup | `1e-4` / `1000` |
 | LoRA | Enabled (`use_lora=True`) |
 | Target modules | `all-linear` |
-| Attention | LLM `flex_attention`, vision `flash_attention_2`, action `sdpa` |
+| Attention | LLM `eager`, vision `sdpa`, action `sdpa` |
 | Gradient checkpointing | VLM GC on, AE GC on |
 
 ## SO101 Data
@@ -121,16 +123,16 @@ script/dm05_launcher.sh \
   --task train \
   --nproc_per_node 8 \
   --model-config.model-name-or-path ./checkpoints/DM05 \
-  --model-config.llm-attn-implementation sdpa \
   --model-config.lora-config.dump-trainable-path \
     user_checkpoints/dm05_so101_lora/trainable_summaries/dm05_lora_so101_pick_cube.json
 ```
 
 `playground/dm05_so101_lora.py` already provides the SO101 LoRA defaults,
 including dataset name, action mode, chunk size, attention settings, learning
-rate, warmup steps, batch size, save interval, and total training steps.
-The reference command overrides LLM attention with SDPA for RTX 4090
-compatibility. Override other options only when you need to change the recipe.
+rate, warmup steps, batch size, save interval, and total training steps. Its
+default attention settings use `eager` for the LLM and `sdpa` for vision and
+action to support RTX 4090. Override other options only when you need to change
+the recipe.
 
 ## What Gets Trained
 
