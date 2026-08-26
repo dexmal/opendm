@@ -22,6 +22,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## News
 
+- [2026-08-26] Released [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim), a fine-tuned model for ARX X5 bimanual manipulation tasks in RoboDojo-Sim. See [XPolicyLab PR #101](https://github.com/XPolicyLab/XPolicyLab/pull/101) for evaluation integration.
 - [2026-08-03] Published the [physical robot modification guide](docs/en/robot_platforms.md) for AgileX COBOT Magic and DOS-W1, documenting camera changes and the robot-name mapping used by the algorithm.
 - [2026-07-24] DM0.5 has added the SO101 pick cube fine-tuned checkpoint and the LoRA SFT workflow. See the [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 - [2026-07-17] DM0.5 has open-sourced the RoboTwin2.0 generalist model checkpoint, along with the supervised fine-tuning (SFT) code built upon the DM0.5 pretrained model. See the [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md).
@@ -38,6 +39,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 | DM05-SO101-Pick-Cube | SO101 fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-SO101-Pick-Cube) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-SO101-Pick-Cube) |
 | DM05-VLA-Arena | VLA-Arena fine-tuned DM0.5 model for evaluation | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-Vla-Arena) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-Vla-Arena) |
 | DM05-Table30v2 | RoboChallenge Table 30 v2 DM0.5 model collection for evaluation | [🤗 Hugging Face](https://huggingface.co/collections/Dexmal/dm05-table30v2) / [🤖 ModelScope](https://www.modelscope.cn/collections/Dexmal/DM05-Table30v2) |
+| DM05-MEM-Robodojo-Sim | RoboDojo-Sim fine-tuned DM0.5 model for ARX X5 bimanual manipulation tasks | [🤗 Hugging Face](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim) / [🤖 ModelScope](https://modelscope.cn/models/Dexmal/DM05-MEM-Robodojo-Sim) |
 
 Example checkpoint download:
 
@@ -61,7 +63,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
   </thead>
   <tbody>
     <tr>
-      <td rowspan="6"><strong>Simulated Tasks</strong></td>
+      <td rowspan="8"><strong>Simulated Tasks</strong></td>
       <td><strong><a href="docs/en/dm05_libero.md">LIBERO</a></strong></td>
       <td><strong>SR</strong></td>
       <td align="right"><strong>99.0%</strong></td>
@@ -107,6 +109,21 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
       <td align="right">-</td>
     </tr>
     <tr>
+      <td rowspan="2"><strong><a href="https://github.com/XPolicyLab/XPolicyLab/pull/101">RoboDojo-Sim</a></strong></td>
+      <td><strong>Score</strong></td>
+      <td align="right"><strong>24.90</strong></td>
+      <td align="right">3.48</td>
+      <td align="right">11.41</td>
+      <td align="right">2.85</td>
+    </tr>
+    <tr>
+      <td><strong>SR</strong></td>
+      <td align="right"><strong>19.34%</strong></td>
+      <td align="right">1.53%</td>
+      <td align="right">6.91%</td>
+      <td align="right">1.31%</td>
+    </tr>
+    <tr>
       <td rowspan="2"><strong>Real-World Tasks</strong></td>
       <td rowspan="2"><strong><a href="docs/en/dm05_robochallenge.md">RoboChallenge<br>Table30V2</a></strong></td>
       <td><strong>Score</strong></td>
@@ -125,7 +142,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
   </tbody>
 </table>
 
-Click a benchmark name to view the corresponding DM05 training and evaluation guide.
+Click a benchmark name to view the corresponding DM05 training/evaluation guide or evaluation integration.
 
 
 ## Quick Start
