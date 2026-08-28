@@ -1,6 +1,9 @@
 """DM05 model architecture built on a Gemma3 VLM and Action Expert."""
 
 import logging
+import math
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -46,6 +49,9 @@ from opendm.model.dm05.dm05_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SUFFIX_GRAPH_PROFILE_CACHE_SIZE = 8
+_SUFFIX_GRAPH_PREFIX_BUCKET_ALIGNMENT = 16
 
 # ---------------------------------------------------------------------------
 # Config
@@ -379,6 +385,22 @@ class DM05OutputWithPast(Gemma3CausalLMOutputWithPast):
     fm_loss: torch.FloatTensor | None = None
 
 
+@dataclass
+class DM05SuffixGraphProfile:
+    """Static buffers for replaying one action-expert diffusion step."""
+
+    prefix_len: int
+    diffusion_steps: int
+    prefix_cache_keys: tuple[torch.Tensor, ...]
+    prefix_cache_values: tuple[torch.Tensor, ...]
+    attention_mask: torch.Tensor
+    position_ids: torch.Tensor
+    state: torch.Tensor
+    time: torch.Tensor
+    action_mask: torch.Tensor | None
+    graph: torch.cuda.CUDAGraph | None = None
+
+
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
@@ -485,6 +507,25 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         config.model_type = self.config_class.model_type
         self.all_tied_weights_keys = dict(getattr(self, "_tied_weights_keys", {}))
         self._real_init(config)
+        self._init_suffix_graph_runtime_state()
+
+    def _init_suffix_graph_runtime_state(self) -> None:
+        self._suffix_graph_profiles = OrderedDict()
+        self._suffix_graph_candidates = OrderedDict()
+        self._suffix_graph_disabled_profiles = OrderedDict()
+        self._suffix_graph_lock = threading.RLock()
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        state.pop("_suffix_graph_profiles", None)
+        state.pop("_suffix_graph_candidates", None)
+        state.pop("_suffix_graph_disabled_profiles", None)
+        state.pop("_suffix_graph_lock", None)
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        self._init_suffix_graph_runtime_state()
 
     def _real_init(self, config: DM05Config):
         self.model = DM05Model(config)
@@ -856,6 +897,52 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         history_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
+        if self._can_use_suffix_graph(input_ids):
+            with self._suffix_graph_lock:
+                return self._inference_action_impl(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    pixel_values=pixel_values,
+                    token_type_ids=token_type_ids,
+                    states=states,
+                    image_masks=image_masks,
+                    diffusion_steps=diffusion_steps,
+                    past_key_values=past_key_values,
+                    action_mask=action_mask,
+                    history_pixel_values=history_pixel_values,
+                    history_mask=history_mask,
+                    **kwargs,
+                )
+        return self._inference_action_impl(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            pixel_values=pixel_values,
+            token_type_ids=token_type_ids,
+            states=states,
+            image_masks=image_masks,
+            diffusion_steps=diffusion_steps,
+            past_key_values=past_key_values,
+            action_mask=action_mask,
+            history_pixel_values=history_pixel_values,
+            history_mask=history_mask,
+            **kwargs,
+        )
+
+    def _inference_action_impl(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: torch.Tensor | None = None,
+        pixel_values: torch.Tensor | None = None,
+        token_type_ids: torch.LongTensor | None = None,
+        states: torch.FloatTensor | None = None,
+        image_masks: torch.BoolTensor | None = None,
+        diffusion_steps: int = 10,
+        past_key_values: DynamicCache | None = None,
+        action_mask: torch.BoolTensor | None = None,
+        history_pixel_values: torch.Tensor | None = None,
+        history_mask: torch.BoolTensor | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
         kv_cache, prefix_len = self._compute_prefix_cache(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -877,6 +964,18 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             device=device,
             dtype=dtype,
         )
+        if self._can_use_suffix_graph(x_t):
+            graph_result = self._run_suffix_graph(
+                input_ids=input_ids,
+                kv_cache=kv_cache,
+                prefix_len=prefix_len,
+                initial_noise=x_t,
+                diffusion_steps=diffusion_steps,
+                action_mask=action_mask,
+            )
+            if graph_result is not None:
+                return graph_result
+
         time_val = 1.0
         dt = -1.0 / diffusion_steps
         for _ in range(diffusion_steps):
@@ -920,6 +1019,354 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             x_t = x_t + v_t * dt
             time_val += dt
         return x_t
+
+    def _can_use_suffix_graph(self, initial_noise: torch.Tensor) -> bool:
+        return (
+            not self.training
+            and initial_noise.is_cuda
+            and self.model.action_expert._suffix_attn_backend == "sdpa"
+        )
+
+    def _suffix_graph_key(
+        self,
+        *,
+        prefix_len: int,
+        initial_noise: torch.Tensor,
+        diffusion_steps: int,
+        action_mask: torch.Tensor | None,
+    ) -> tuple:
+        graph_modules = (
+            self.model.action_in_proj,
+            self.model.action_expert,
+            self.model.action_out_proj,
+            self.model.time_mlp_in,
+            self.model.time_mlp_out,
+        )
+        return (
+            tuple(initial_noise.shape),
+            int(prefix_len),
+            int(diffusion_steps),
+            initial_noise.device,
+            initial_noise.dtype,
+            (
+                None
+                if action_mask is None
+                else (tuple(action_mask.shape), action_mask.device, action_mask.dtype)
+            ),
+            tuple(
+                (id(parameter), parameter._version)
+                for module in graph_modules
+                for parameter in module.parameters()
+            ),
+        )
+
+    def _suffix_graph_prefix_bucket_len(self, prefix_len: int) -> int:
+        alignment = int(_SUFFIX_GRAPH_PREFIX_BUCKET_ALIGNMENT)
+        return int(math.ceil(int(prefix_len) / alignment) * alignment)
+
+    def _pad_suffix_graph_input_ids(
+        self,
+        input_ids: torch.LongTensor,
+        target_len: int,
+    ) -> torch.LongTensor:
+        input_len = int(input_ids.shape[1])
+        if input_len == target_len:
+            return input_ids
+        if input_len > target_len:
+            raise ValueError(
+                f"suffix graph prefix bucket {target_len} is shorter than input "
+                f"length {input_len}."
+            )
+        pad_token_id = int(self.model.vlm.model.language_model.padding_idx)
+        return F.pad(input_ids, (0, target_len - input_len), value=pad_token_id)
+
+    @staticmethod
+    def _copy_prefix_cache_tensor(
+        target: torch.Tensor,
+        source: torch.Tensor,
+    ) -> None:
+        target.zero_()
+        source_len = int(source.shape[2])
+        target_len = int(target.shape[2])
+        if source_len > target_len:
+            raise ValueError(
+                f"suffix graph prefix cache bucket {target_len} is shorter than "
+                f"source prefix cache {source_len}."
+            )
+        target[:, :, :source_len, :].copy_(source)
+
+    def _make_suffix_graph_cache_tensor(
+        self,
+        source: torch.Tensor,
+        target_prefix_len: int,
+    ) -> torch.Tensor:
+        target = source.detach().new_zeros(
+            *source.shape[:2],
+            int(target_prefix_len),
+            source.shape[3],
+        )
+        self._copy_prefix_cache_tensor(target, source)
+        return target
+
+    def _cache_suffix_graph_profile(
+        self,
+        profile_key: tuple,
+        profile: DM05SuffixGraphProfile,
+    ) -> None:
+        self._suffix_graph_disabled_profiles.pop(profile_key, None)
+        self._suffix_graph_profiles[profile_key] = profile
+        self._suffix_graph_profiles.move_to_end(profile_key)
+        if len(self._suffix_graph_profiles) > _SUFFIX_GRAPH_PROFILE_CACHE_SIZE:
+            _, retired = self._suffix_graph_profiles.popitem(last=False)
+            if retired.graph is not None:
+                retired.graph.reset()
+
+    def _retire_suffix_graph_profile(self, profile_key: tuple) -> None:
+        profile = self._suffix_graph_profiles.pop(profile_key, None)
+        self._suffix_graph_candidates.pop(profile_key, None)
+        if profile is not None and profile.graph is not None:
+            profile.graph.reset()
+
+    def _disable_suffix_graph_profile(
+        self,
+        profile_key: tuple,
+        reason: Exception,
+    ) -> None:
+        self._retire_suffix_graph_profile(profile_key)
+        self._suffix_graph_disabled_profiles[profile_key] = None
+        self._suffix_graph_disabled_profiles.move_to_end(profile_key)
+        if len(self._suffix_graph_disabled_profiles) > _SUFFIX_GRAPH_PROFILE_CACHE_SIZE:
+            self._suffix_graph_disabled_profiles.popitem(last=False)
+        logger.warning(
+            "Disabling DM05 suffix CUDA Graph profile after failure; "
+            "falling back to eager suffix decode: %s",
+            reason,
+            exc_info=True,
+        )
+
+    def _should_capture_suffix_graph_profile(self, profile_key: tuple) -> bool:
+        if profile_key in self._suffix_graph_candidates:
+            del self._suffix_graph_candidates[profile_key]
+            return True
+        self._suffix_graph_candidates[profile_key] = None
+        if len(self._suffix_graph_candidates) > _SUFFIX_GRAPH_PROFILE_CACHE_SIZE:
+            self._suffix_graph_candidates.popitem(last=False)
+        return False
+
+    def _build_suffix_metadata(
+        self,
+        *,
+        input_ids: torch.LongTensor,
+        prefix_len: int,
+        suffix_len: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        invisible_prefix_token_ids = (HISTORY_PAD_TOKEN_ID,)
+        attention_mask = make_suffix_attn_mask(
+            input_ids=input_ids,
+            prefix_len=prefix_len,
+            suffix_len=suffix_len,
+            batch_size=int(input_ids.shape[0]),
+            device=device,
+            dtype=dtype,
+            pad_token_id=self.model.vlm.model.language_model.padding_idx,
+            invisible_prefix_token_ids=invisible_prefix_token_ids,
+        )
+        position_ids = self._build_suffix_position_ids(
+            prefix_len,
+            suffix_len,
+            device,
+            input_ids=input_ids,
+            pad_token_id=self.model.vlm.model.language_model.padding_idx,
+            invisible_prefix_token_ids=invisible_prefix_token_ids,
+        )
+        return attention_mask, position_ids
+
+    @torch.no_grad()
+    def _run_suffix_graph(
+        self,
+        *,
+        input_ids: torch.LongTensor,
+        kv_cache: Cache,
+        prefix_len: int,
+        initial_noise: torch.Tensor,
+        diffusion_steps: int,
+        action_mask: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        graph_prefix_len = self._suffix_graph_prefix_bucket_len(prefix_len)
+        profile_key = self._suffix_graph_key(
+            prefix_len=graph_prefix_len,
+            initial_noise=initial_noise,
+            diffusion_steps=diffusion_steps,
+            action_mask=action_mask,
+        )
+        with self._suffix_graph_lock:
+            if profile_key in self._suffix_graph_disabled_profiles:
+                return None
+            try:
+                profile = self._suffix_graph_profiles.get(profile_key)
+                if profile is None:
+                    if not self._should_capture_suffix_graph_profile(profile_key):
+                        return None
+                    profile = self._capture_suffix_graph_profile(
+                        input_ids=input_ids,
+                        kv_cache=kv_cache,
+                        prefix_len=graph_prefix_len,
+                        initial_noise=initial_noise,
+                        diffusion_steps=diffusion_steps,
+                        action_mask=action_mask,
+                    )
+                self._cache_suffix_graph_profile(profile_key, profile)
+
+                if profile is None or profile.graph is None:
+                    raise RuntimeError("Suffix CUDA Graph profile was not captured.")
+                self._copy_suffix_graph_inputs(
+                    profile,
+                    input_ids=input_ids,
+                    kv_cache=kv_cache,
+                    initial_noise=initial_noise,
+                    action_mask=action_mask,
+                )
+
+                time_value = 1.0
+                dt = -1.0 / diffusion_steps
+                for _ in range(diffusion_steps):
+                    profile.time.fill_(time_value)
+                    profile.graph.replay()
+                    time_value += dt
+                return profile.state.clone()
+            except Exception as exc:
+                self._disable_suffix_graph_profile(profile_key, exc)
+                return None
+
+    @torch.no_grad()
+    def _capture_suffix_graph_profile(
+        self,
+        *,
+        input_ids: torch.LongTensor,
+        kv_cache: Cache,
+        prefix_len: int,
+        initial_noise: torch.Tensor,
+        diffusion_steps: int,
+        action_mask: torch.Tensor | None,
+    ) -> DM05SuffixGraphProfile:
+        padded_input_ids = self._pad_suffix_graph_input_ids(input_ids, prefix_len)
+        attention_mask, position_ids = self._build_suffix_metadata(
+            input_ids=padded_input_ids,
+            prefix_len=prefix_len,
+            suffix_len=int(initial_noise.shape[1]),
+            device=initial_noise.device,
+            dtype=initial_noise.dtype,
+        )
+        source_keys, source_values = self._extract_prefix_cache_tensors(kv_cache)
+        profile = DM05SuffixGraphProfile(
+            prefix_len=int(prefix_len),
+            diffusion_steps=int(diffusion_steps),
+            prefix_cache_keys=tuple(
+                self._make_suffix_graph_cache_tensor(tensor, prefix_len)
+                for tensor in source_keys
+            ),
+            prefix_cache_values=tuple(
+                self._make_suffix_graph_cache_tensor(tensor, prefix_len)
+                for tensor in source_values
+            ),
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            state=initial_noise.detach().clone(),
+            time=torch.ones(
+                int(initial_noise.shape[0]),
+                device=initial_noise.device,
+                dtype=initial_noise.dtype,
+            ),
+            action_mask=(
+                None
+                if action_mask is None
+                else action_mask.new_empty(initial_noise.shape).copy_(action_mask)
+            ),
+        )
+
+        warmup_stream = torch.cuda.Stream(device=initial_noise.device)
+        warmup_stream.wait_stream(torch.cuda.current_stream(initial_noise.device))
+        with torch.cuda.stream(warmup_stream):
+            for _ in range(2):
+                self._run_suffix_graph_step(profile)
+        torch.cuda.current_stream(initial_noise.device).wait_stream(warmup_stream)
+        torch.cuda.synchronize(initial_noise.device)
+
+        profile.state.copy_(initial_noise)
+        profile.time.fill_(1.0)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            self._run_suffix_graph_step(profile)
+        profile.graph = graph
+        return profile
+
+    def _copy_suffix_graph_inputs(
+        self,
+        profile: DM05SuffixGraphProfile,
+        *,
+        input_ids: torch.LongTensor,
+        kv_cache: Cache,
+        initial_noise: torch.Tensor,
+        action_mask: torch.Tensor | None,
+    ) -> None:
+        profile.state.copy_(initial_noise)
+        if profile.action_mask is not None:
+            if action_mask is None:
+                raise ValueError(
+                    "action_mask does not match the captured graph profile"
+                )
+            profile.action_mask.copy_(action_mask)
+
+        padded_input_ids = self._pad_suffix_graph_input_ids(
+            input_ids,
+            profile.prefix_len,
+        )
+        attention_mask, position_ids = self._build_suffix_metadata(
+            input_ids=padded_input_ids,
+            prefix_len=profile.prefix_len,
+            suffix_len=int(initial_noise.shape[1]),
+            device=initial_noise.device,
+            dtype=initial_noise.dtype,
+        )
+        profile.attention_mask.copy_(attention_mask)
+        profile.position_ids.copy_(position_ids)
+
+        source_keys, source_values = self._extract_prefix_cache_tensors(kv_cache)
+        for target, source in zip(profile.prefix_cache_keys, source_keys, strict=True):
+            self._copy_prefix_cache_tensor(target, source)
+        for target, source in zip(
+            profile.prefix_cache_values, source_values, strict=True
+        ):
+            self._copy_prefix_cache_tensor(target, source)
+
+    def _run_suffix_graph_step(self, profile: DM05SuffixGraphProfile) -> None:
+        x_t = profile.state
+        if profile.action_mask is not None:
+            x_t = x_t * profile.action_mask
+        suffix_embeds = self.model.action_in_proj(x_t)
+        adarms_cond = self._build_adarms_cond(profile.time, suffix_embeds.dtype)
+        suffix_out = self.model.action_expert(
+            suffix_embeds=suffix_embeds,
+            attention_mask=profile.attention_mask,
+            position_ids=profile.position_ids,
+            prefix_cache_keys=profile.prefix_cache_keys,
+            prefix_cache_values=profile.prefix_cache_values,
+            adarms_cond=adarms_cond,
+        )
+        updated = x_t + self.model.action_out_proj(suffix_out) * (
+            -1.0 / profile.diffusion_steps
+        )
+        profile.state.copy_(updated)
+
+    def _clear_suffix_graph_profile(self) -> None:
+        for profile in self._suffix_graph_profiles.values():
+            if profile.graph is not None:
+                profile.graph.reset()
+        self._suffix_graph_profiles.clear()
+        self._suffix_graph_candidates.clear()
+        self._suffix_graph_disabled_profiles.clear()
 
     def _compute_prefix_cache(
         self,

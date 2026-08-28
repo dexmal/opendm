@@ -63,8 +63,16 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 
 ## 3. 启动 Default Backend
 
-Default backend 使用标准 PyTorch 推理路径。推理模式下 launcher 会直接启动一个 Python
-进程，不需要传 `--nproc_per_node`。
+Default backend 的 VLM prefix 使用标准 PyTorch 路径。在 CUDA eval 模式下，默认的
+`sdpa` action attention 会自动对 action suffix 使用 CUDA Graph replay；不满足条件时
+安全回退 eager，不需要安装额外的 `fast-infer` 依赖。
+
+Suffix Graph profile 按执行 shape 延迟创建：新 profile 第一次出现时使用 eager，第二次
+出现时 capture，后续请求复用。Prefix 长度按 16 tokens 向上分桶，最多保留 8 个
+profiles，因此不同长度的 prompt 不需要固定的 Graph prefix 上限；capture 或 replay
+失败也会回退 eager。
+
+推理模式下 launcher 会直接启动一个 Python 进程，不需要传 `--nproc_per_node`。
 
 ### DM05 基础预训练模型
 
@@ -287,7 +295,9 @@ EOF
 - `observation.images`：必填 JSON 对象，值为 base64 编码图片。键名必须是连续的 1-based
   字符串（`"1"`、`"2"`、…），并与 `--inference-config.image-prompts` **按顺序一一对应**：
   例如 `"1"` → 第 1 个 prompt（如 `Head`），`"2"` → 第 2 个（如 `Left wrist`）。
-- `observation.history_images`：可选的 base64 历史帧 JSON 数组，**从旧到新**。仅当服务启动时加了
+- `observation.history_images`：可选的 base64 历史帧 JSON 数组，**从旧到新**，默认最多 5 帧。
+  Default backend 可通过 `--inference-config.max-history-images 32` 放宽到 32 帧；此时同时设置
+  `--trainer-config.model-max-length 2048`。Fast backend 当前仍最多支持 5 帧。仅当服务启动时加了
   `--data-config.is-history` 才可使用；无历史时省略或传 `[]`。完整请求见
   [`tests/curl_history.sh`](../../tests/curl_history.sh)。
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
@@ -345,7 +355,8 @@ Legacy 请求字段：
 - `text`：任务指令，默认是空字符串。
 - `states`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
 - `image`：可重复的图片字段，数量和顺序必须与 `image_prompts` 一致（如 Head、Left wrist、Right wrist）。
-- `history_images`：可选的历史帧（重复 multipart 字段，从旧到新）。仅当服务启动时加了
+- `history_images`：可选的历史帧（重复 multipart 字段，从旧到新），默认最多 5 帧。
+  Default backend 可配置到 32 帧，Fast backend 当前仍最多支持 5 帧。仅当服务启动时加了
   `--data-config.is-history` 才可使用。
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
   例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值精确选择 profile，例如
@@ -377,6 +388,7 @@ Legacy 成功响应保持历史格式：
 | `--inference-config.diffusion-steps` | Action diffusion steps，默认值为 `10`。 |
 | `--inference-config.output-action-dim` | 返回的 action 维度，必须与归一化统计一致。 |
 | `--inference-config.image-prompts` | 有序相机标签，与 `observation.images` 的 `"1"`、`"2"`、… 一一对应。 |
+| `--inference-config.max-history-images` | Default backend 的历史帧请求上限，默认 `5`；32 帧场景设为 `32`。Fast backend 当前上限仍为 `5`。 |
 | `--data-config.is-history` | 开启后才接受 `history_images`；普通 `curl_demo.sh` 不需要。 |
 | `--inference-config.backend` | `default` 或 `fast`。 |
 | `--inference-config.vision-trt-engine-path` | 当前 checkpoint 专用的 TensorRT vision engine 路径；默认值为 `checkpoints/trt_engines/dm05_vision.engine`。 |
@@ -395,7 +407,8 @@ Legacy 成功响应保持历史格式：
 | TensorRT 图片数量不匹配 | 用与 `image_prompts` 数量相同的 `--num-images` 重建；开启 history 时用 `len(image_prompts) + 5`。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |
 | Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 1024。 |
-| Prefix 超过 1024 tokens | 缩短 instruction 或降低 `model_max_length`。 |
+| Fast prefix 超过 1024 tokens | 缩短 instruction 或降低 `model_max_length`；32 帧 history 请使用 Default backend 并将 `model_max_length` 设为 2048。 |
+| Default backend 偶尔有单次请求较慢 | 新执行 profile 第一次走 eager，第二次出现时 capture；后续匹配请求会复用 Graph。 |
 | Fast 服务长时间未就绪 | 等待 engine 准备和所有 CUDA Graph profiles 在启动阶段完成 capture。 |
 
 ## 8. 相关指南

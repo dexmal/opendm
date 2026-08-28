@@ -451,6 +451,7 @@ class DM05DataConfig(Config):
 class DM05InferenceConfig(Config):
     port: int = field(default=7891)
     diffusion_steps: int = field(default=10)
+    max_history_images: int = field(default=5)
     output_action_dim: int = field(default=14)
     image_prompts: list[str] = field(
         default_factory=lambda: ["Head", "Left wrist", "Right wrist"]
@@ -739,6 +740,22 @@ class DM05InferenceConfig(Config):
                 "history_images were provided but the service was started without "
                 "--data-config.is-history."
             )
+        if history_images:
+            from opendm.infer.dm05_trt_utils import MAX_HISTORY_IMAGES
+
+            max_history_images = int(self.max_history_images)
+            if max_history_images < 0:
+                raise ValueError(
+                    "inference max_history_images must be non-negative, got "
+                    f"{max_history_images}."
+                )
+            if self.backend == "fast":
+                max_history_images = min(max_history_images, MAX_HISTORY_IMAGES)
+            if len(history_images) > max_history_images:
+                raise ValueError(
+                    f"At most {max_history_images} history images are supported, "
+                    f"got {len(history_images)}."
+                )
 
         pil_images = [
             self._load_image(img, f"image[{i}]") for i, img in enumerate(images)

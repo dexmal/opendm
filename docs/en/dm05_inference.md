@@ -71,8 +71,19 @@ inference dimensions.
 
 ## 3. Start the Default Backend
 
-The default backend uses the standard PyTorch inference path. The inference
-launcher starts one Python process directly, so `--nproc_per_node` is not needed.
+The default backend uses the standard PyTorch path for the VLM prefix. On CUDA
+in evaluation mode, the default `sdpa` action-attention backend automatically
+uses CUDA Graph replay for the action suffix; unsupported configurations safely
+remain on eager execution. No additional `fast-infer` dependencies are needed.
+
+Suffix Graph profiles are created lazily per execution shape. The first request
+in a new profile runs eagerly, the second captures the Graph, and later requests
+reuse it. Prefix lengths are rounded up to 16-token buckets, and up to eight
+profiles are retained. This supports varying prompts without a fixed Graph
+prefix limit; a capture or replay failure falls back to eager execution.
+
+The inference launcher starts one Python process directly, so
+`--nproc_per_node` is not needed.
 
 ### DM05 Base Pretrained Model
 
@@ -310,7 +321,10 @@ Request fields:
   to `--inference-config.image-prompts` (e.g. `"1"` → first prompt such as
   `Head`, `"2"` → second such as `Left wrist`).
 - `observation.history_images`: optional JSON array of base64 history frames,
-  **oldest to newest**. Only valid when the service was started with
+  **oldest to newest**, with 5 frames allowed by default. The Default backend can
+  accept up to 32 with `--inference-config.max-history-images 32`; also set
+  `--trainer-config.model-max-length 2048`. The Fast backend currently remains
+  limited to 5. Only valid when the service was started with
   `--data-config.is-history`; omit or use `[]` when there is no history. See
   [`tests/curl_history.sh`](../../tests/curl_history.sh) for a full request.
 - `observation.robot_type`: optional robot embodiment used for state/action
@@ -375,8 +389,10 @@ Legacy request fields:
   match the checkpoint's normalization statistics.
 - `image`: repeated image file field. The count and order must match
   `image_prompts` (e.g. Head, Left wrist, Right wrist).
-- `history_images`: optional repeated history frames (oldest to newest). Only
-  valid when the service was started with `--data-config.is-history`.
+- `history_images`: optional repeated history frames (oldest to newest), with 5
+  frames allowed by default. The Default backend can be configured for 32,
+  while the Fast backend currently remains limited to 5. Only valid when the
+  service was started with `--data-config.is-history`.
 - `robot_type`: optional robot embodiment used for state/action semantics.
   Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
   RoboTwin2`. Multi-robot checkpoints select profiles by the exact value, for
@@ -410,6 +426,7 @@ A successful legacy response returns the historical shape:
 | `--inference-config.diffusion-steps` | Number of action diffusion steps; default `10`. |
 | `--inference-config.output-action-dim` | Returned action dimension; must match normalization statistics. |
 | `--inference-config.image-prompts` | Ordered camera labels, one-to-one with `observation.images` keys `"1"`, `"2"`, …. |
+| `--inference-config.max-history-images` | Default-backend history request limit. Defaults to `5`; use `32` for 32-frame workloads. The Fast backend remains limited to `5`. |
 | `--data-config.is-history` | Required to accept `history_images`; plain `curl_demo.sh` does not need it. |
 | `--inference-config.backend` | `default` or `fast`. |
 | `--inference-config.vision-trt-engine-path` | Checkpoint-specific TensorRT vision engine path; default `checkpoints/trt_engines/dm05_vision.engine`. |
@@ -428,7 +445,8 @@ A successful legacy response returns the historical shape:
 | TensorRT image-count mismatch | Rebuild with `--num-images` equal to `len(image_prompts)`; with history use `len(image_prompts) + 5`. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |
 | Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most 1024. |
-| Prefix exceeds 1024 tokens | Shorten the instruction or reduce `model_max_length`. |
+| Fast prefix exceeds 1024 tokens | Shorten the instruction or reduce `model_max_length`; for 32-frame history use the Default backend with `model_max_length` set to 2048. |
+| An occasional default-backend request is slower | A new execution profile runs eagerly once and captures on its second occurrence; later matching requests reuse the Graph. |
 | Fast service takes time to become ready | Wait for engine preparation and all configured CUDA Graph profiles to finish at startup. |
 
 ## 8. Related Guides
