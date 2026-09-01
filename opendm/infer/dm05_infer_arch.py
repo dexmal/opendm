@@ -27,6 +27,12 @@ from transformers.models.gemma3.modeling_gemma3 import (
     token_type_ids_mask_function,
 )
 
+from opendm.constants.precision import (
+    BF16_MIXED_PRECISION_POLICY,
+    COMPUTE_DTYPE,
+    FP32_MIXED_PRECISION_POLICY,
+    MODEL_DTYPE,
+)
 from opendm.constants.robot import HISTORY_POOL_SIZE
 from opendm.model.dm05.dm05_arch import (
     DM05ActionExpert,
@@ -34,7 +40,7 @@ from opendm.model.dm05.dm05_arch import (
 )
 from opendm.model.dm05.dm05_utils import (
     HISTORY_PAD_TOKEN_ID,
-    fused_linear_euler_update,
+    linear_fp32,
     make_suffix_attn_mask,
     mask_history_pad_tokens_in_attention,
     posemb_sincos,
@@ -167,17 +173,21 @@ def _mark_static_address(tensor: torch.Tensor) -> None:
         torch._dynamo.mark_static_address(tensor)
 
 
-def _pack_qkv_weight(layer) -> torch.Tensor:
+def _pack_qkv_weight(layer, dtype: torch.dtype) -> torch.Tensor:
     """Pack Gemma3 q/k/v projection weights into one [hidden, qkv] matrix."""
     attn = layer.self_attn
-    return torch.cat(
-        [
-            attn.q_proj.weight.detach().transpose(0, 1),
-            attn.k_proj.weight.detach().transpose(0, 1),
-            attn.v_proj.weight.detach().transpose(0, 1),
-        ],
-        dim=1,
-    ).contiguous()
+    return (
+        torch.cat(
+            [
+                attn.q_proj.weight.detach().transpose(0, 1),
+                attn.k_proj.weight.detach().transpose(0, 1),
+                attn.v_proj.weight.detach().transpose(0, 1),
+            ],
+            dim=1,
+        )
+        .to(dtype=dtype)
+        .contiguous()
+    )
 
 
 def _prefix_decoder_shape(layer) -> "bigkernel.DM05TransformerShape":
@@ -202,12 +212,15 @@ def _supported_prefix_decoder_shape() -> "bigkernel.DM05TransformerShape":
     )
 
 
-def _pack_suffix_mlp_weights(layer) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _pack_suffix_mlp_weights(
+    layer,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     mlp = layer.mlp
     return (
-        mlp.gate_proj.weight.detach().transpose(0, 1).contiguous(),
-        mlp.up_proj.weight.detach().transpose(0, 1).contiguous(),
-        mlp.down_proj.weight.detach().transpose(0, 1).contiguous(),
+        mlp.gate_proj.weight.detach().transpose(0, 1).to(dtype=dtype).contiguous(),
+        mlp.up_proj.weight.detach().transpose(0, 1).to(dtype=dtype).contiguous(),
+        mlp.down_proj.weight.detach().transpose(0, 1).to(dtype=dtype).contiguous(),
     )
 
 
@@ -259,10 +272,16 @@ class DM05FastActionExpert(DM05ActionExpert):
     def _initialize_fast_state(self) -> None:
         self.set_action_attention_backend("sdpa")
         self._fast_qkv_weights = None
+        self._fast_o_proj_weights = None
         self._fast_mlp_weights = None
         self._fast_buffers = None
         self._fast_prefix_qkv_weights = None
         self._fast_prefix_shape = None
+
+    def _fast_kernel_dtype(self) -> torch.dtype:
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            return COMPUTE_DTYPE
+        return next(self.parameters()).dtype
 
     def setup_fast_bigkernel_suffix(self) -> None:
         if bigkernel is None:
@@ -270,13 +289,19 @@ class DM05FastActionExpert(DM05ActionExpert):
                 "Triton suffix big-kernel backend requires triton to be installed."
             ) from _BIGKERNEL_IMPORT_ERROR
 
+        kernel_dtype = self._fast_kernel_dtype()
         qkv_weights = []
+        o_proj_weights = []
         mlp_weights = []
         for layer in self.layers:
-            qkv_weights.append(_pack_qkv_weight(layer))
-            mlp_weights.append(_pack_suffix_mlp_weights(layer))
+            qkv_weights.append(_pack_qkv_weight(layer, kernel_dtype))
+            o_proj_weights.append(
+                layer.self_attn.o_proj.weight.detach().to(dtype=kernel_dtype)
+            )
+            mlp_weights.append(_pack_suffix_mlp_weights(layer, kernel_dtype))
 
         self._fast_qkv_weights = tuple(qkv_weights)
+        self._fast_o_proj_weights = tuple(o_proj_weights)
         self._fast_mlp_weights = tuple(mlp_weights)
         self._fast_buffers = None
 
@@ -319,7 +344,7 @@ class DM05FastActionExpert(DM05ActionExpert):
                     "Static prefix inference requires flex_attention for every "
                     f"decoder layer, but layer {layer_idx} uses {attention_backend!r}."
                 )
-            qkv_weights.append(_pack_qkv_weight(layer))
+            qkv_weights.append(_pack_qkv_weight(layer, self._fast_kernel_dtype()))
 
         self._fast_prefix_qkv_weights = tuple(qkv_weights)
         self._fast_prefix_shape = expected_shape
@@ -446,6 +471,7 @@ class DM05FastActionExpert(DM05ActionExpert):
 
         cos, sin = rope_embeddings[layer_type]
         qkv_weights = self._fast_qkv_weights
+        o_proj_weights = self._fast_o_proj_weights
         bigkernel.launch_input_adarmsnorm(
             suffix_embeds,
             input_modulation,
@@ -475,7 +501,7 @@ class DM05FastActionExpert(DM05ActionExpert):
         attn_output = buffers.attn_out.view(batch_size, seq_len, -1)
         attn_embeds = torch.mm(
             attn_output.view(buffers.rows, -1),
-            ae_layer.self_attn.o_proj.weight.transpose(0, 1),
+            o_proj_weights[layer_idx].transpose(0, 1),
             out=buffers.residual.view(buffers.rows, -1),
         )
         hidden = buffers.shape.hidden_size
@@ -547,7 +573,10 @@ class DM05FastActionExpert(DM05ActionExpert):
         def _stack_modulator_outputs(modulator: nn.Linear) -> torch.Tensor:
             outputs = []
             for adarms_cond in adarms_cond_steps:
-                modulation = modulator(adarms_cond.to(dtype=modulator.weight.dtype))
+                if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+                    modulation = linear_fp32(adarms_cond, modulator)
+                else:
+                    modulation = modulator(adarms_cond.to(dtype=modulator.weight.dtype))
                 modulation = modulation[:, None, :]
                 outputs.append(modulation)
             return torch.stack(outputs, dim=0).contiguous()
@@ -574,6 +603,11 @@ class DM05FastForCausalLM:
     ) -> None:
         self.model = model
         self.dm05 = model.model
+        self.precision_policy = getattr(
+            model,
+            "precision_policy",
+            BF16_MIXED_PRECISION_POLICY,
+        )
         self.action_expert = DM05FastActionExpert.from_action_expert(
             self.dm05.action_expert
         )
@@ -583,6 +617,11 @@ class DM05FastForCausalLM:
         self.suffix_len = int(self.dm05.config.chunk_size)
         self.action_dim = int(self.dm05.config.action_dim)
         self.noise_dtype = self.dm05.action_in_proj.weight.dtype
+        self.suffix_kernel_dtype = (
+            COMPUTE_DTYPE
+            if self.precision_policy == FP32_MIXED_PRECISION_POLICY
+            else self._suffix_hidden_dtype()
+        )
         self.prefix_decoder_initialized = False
         self.suffix_rope_embeddings = None
         self.suffix_time_modulations = None
@@ -614,6 +653,15 @@ class DM05FastForCausalLM:
             dtype=dtype,
             device=device,
         )
+
+    def _suffix_hidden_dtype(self) -> torch.dtype:
+        return next(self.action_expert.parameters()).dtype
+
+    def _action_input_proj(self, x: torch.Tensor) -> torch.Tensor:
+        return linear_fp32(x, self.dm05.action_in_proj).to(self.suffix_kernel_dtype)
+
+    def _action_output_proj(self, x: torch.Tensor) -> torch.Tensor:
+        return linear_fp32(x, self.dm05.action_out_proj)
 
     def _validate_prefix_inputs(
         self,
@@ -867,7 +915,11 @@ class DM05FastForCausalLM:
         else:
             llm_input_ids = input_ids
 
-        inputs_embeds = vlm_model.get_input_embeddings()(llm_input_ids).contiguous()
+        inputs_embeds = (
+            vlm_model.get_input_embeddings()(llm_input_ids)
+            .to(dtype=self.suffix_kernel_dtype)
+            .contiguous()
+        )
         inputs_embeds = self._zero_history_pad_embeds(input_ids, inputs_embeds)
         inputs_embeds = self._inject_history_into_embeds(
             inputs_embeds=inputs_embeds,
@@ -1060,7 +1112,7 @@ class DM05FastForCausalLM:
         )
 
         for _ in range(diffusion_steps):
-            suffix_embeds = self.dm05.action_in_proj(x_t)
+            suffix_embeds = self._action_input_proj(x_t)
             adarms_cond = self._build_adarms_cond(time_tensor, suffix_embeds.dtype)
             suffix_len = int(suffix_embeds.shape[1])
             suffix_attn_mask = make_suffix_attn_mask(
@@ -1090,7 +1142,7 @@ class DM05FastForCausalLM:
                 adarms_cond=adarms_cond,
             )
 
-            v_t = self.dm05.action_out_proj(suffix_out)
+            v_t = self._action_output_proj(suffix_out)
             x_t = x_t + v_t * dt
             x_t = x_t * action_mask
             time_tensor = time_tensor + dt
@@ -1166,7 +1218,7 @@ class DM05FastForCausalLM:
                 batch_size=batch_size,
                 seq_len=suffix_len,
                 max_kv_len=max_kv_len,
-                dtype=initial_noise.dtype,
+                dtype=self.suffix_kernel_dtype,
                 device=initial_noise.device,
             )
             suffix_buffers = self.action_expert._fast_buffers
@@ -1175,7 +1227,7 @@ class DM05FastForCausalLM:
             or int(suffix_buffers.seq_len) != suffix_len
             or int(suffix_buffers.max_kv_len)
             != int(prefix_cache_keys[0].shape[2]) + suffix_len
-            or suffix_buffers.dtype != initial_noise.dtype
+            or suffix_buffers.dtype != self.suffix_kernel_dtype
             or suffix_buffers.device != initial_noise.device
         ):
             raise ValueError(
@@ -1186,13 +1238,17 @@ class DM05FastForCausalLM:
 
         rope_embeddings = self._get_suffix_rope_embeddings(
             position_ids=suffix_position_ids,
-            dtype=initial_noise.dtype,
+            dtype=self.suffix_kernel_dtype,
             device=initial_noise.device,
         )
         time_modulations = self._get_suffix_time_modulations(
             batch_size=batch_size,
             diffusion_steps=diffusion_steps,
-            dtype=initial_noise.dtype,
+            dtype=(
+                MODEL_DTYPE
+                if self.precision_policy == FP32_MIXED_PRECISION_POLICY
+                else self.suffix_kernel_dtype
+            ),
             device=initial_noise.device,
         )
         return {
@@ -1312,7 +1368,7 @@ class DM05FastForCausalLM:
             input_modulations, mlp_modulations, final_modulation = (
                 self._slice_suffix_time_modulations(time_modulations, step_idx)
             )
-            suffix_embeds = self.dm05.action_in_proj(x_t)
+            suffix_embeds = self._action_input_proj(x_t)
             suffix_out = self.action_expert._suffix_forward_layers_fast_bigkernel(
                 suffix_embeds=suffix_embeds,
                 prefix_visible_mask=prefix_visible_mask,
@@ -1324,21 +1380,25 @@ class DM05FastForCausalLM:
                 final_modulation=final_modulation,
                 buffers=suffix_buffers,
             )
-            x_t = fused_linear_euler_update(
-                hidden_states=suffix_out,
-                current=x_t,
-                linear=self.dm05.action_out_proj,
-                dt=dt,
-            )
+            velocity = self._action_output_proj(suffix_out)
+            x_t = x_t + velocity * dt
             x_t = x_t * action_mask
         return x_t
 
     def _build_adarms_cond(
         self,
         time: torch.Tensor,
-        dtype: torch.dtype,
+        dtype: torch.dtype | None = None,
     ) -> torch.Tensor:
         ae_hidden = self.dm05.action_in_proj.out_features
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            time_emb = posemb_sincos(time, ae_hidden, max_period=4.0).to(MODEL_DTYPE)
+            cond = linear_fp32(time_emb, self.dm05.time_mlp_in)
+            cond = F.silu(cond)
+            cond = linear_fp32(cond, self.dm05.time_mlp_out)
+            return F.silu(cond)
+
+        dtype = self.dm05.time_mlp_in.weight.dtype if dtype is None else dtype
         time_emb = posemb_sincos(time, ae_hidden, max_period=4.0).to(dtype)
         cond = self.dm05.time_mlp_in(time_emb)
         cond = F.silu(cond)

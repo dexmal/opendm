@@ -51,7 +51,7 @@ class DM05VisionFeatureModule(nn.Module):
 def _load_model(checkpoint: Path) -> DM05ForConditionalGeneration:
     model = load_dm05_model_for_inference(
         str(checkpoint),
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         trust_remote_code=True,
     )
     if not isinstance(model, DM05ForConditionalGeneration):

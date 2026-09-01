@@ -31,6 +31,11 @@ from transformers.models.gemma3.modeling_gemma3 import (
     repeat_kv,
 )
 
+from opendm.constants.precision import (
+    BF16_MIXED_PRECISION_POLICY,
+    FP32_MIXED_PRECISION_POLICY,
+    MODEL_DTYPE,
+)
 from opendm.constants.robot import HISTORY_POOL_SIZE
 from opendm.model.base import (
     DMBaseConfig,
@@ -41,6 +46,7 @@ from opendm.model.dm05.dm05_utils import (
     VLADynamicCache,
     is_flash_attention_2_available,
     is_flex_attention_available,
+    linear_fp32,
     make_suffix_attn_mask,
     mask_history_pad_tokens_in_attention,
     patch_decoder_layers,
@@ -117,6 +123,7 @@ class DM05ActionExpert(Gemma3TextModel):
             nn.Linear(hidden_size, 3 * hidden_size) for _ in self.layers
         )
         self.final_time_modulator = nn.Linear(hidden_size, 3 * hidden_size)
+        self.precision_policy = BF16_MIXED_PRECISION_POLICY
         self.post_init()
         self._init_time_modulators()
         self.set_action_attention_backend("eager")
@@ -300,7 +307,10 @@ class DM05ActionExpert(Gemma3TextModel):
             eps = norm.variance_epsilon
         normed = x * torch.rsqrt(var + eps)
 
-        modulation = modulator(adarms_cond.to(dtype=modulator.weight.dtype))
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            modulation = linear_fp32(adarms_cond, modulator)
+        else:
+            modulation = modulator(adarms_cond.to(dtype=modulator.weight.dtype))
         if modulation.ndim == 2:
             modulation = modulation[:, None, :]
         scale, shift, gate = torch.chunk(modulation, 3, dim=-1)
@@ -498,6 +508,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
     """
 
     config_class = DM05Config
+    _FSDP_VLM_LAYERS_TO_WRAP = 24
     _tied_weights_keys = {
         "model.vlm.lm_head.weight": "model.vlm.model.language_model.embed_tokens.weight",
     }
@@ -506,8 +517,14 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         super().__init__(config)
         config.model_type = self.config_class.model_type
         self.all_tied_weights_keys = dict(getattr(self, "_tied_weights_keys", {}))
+        self.precision_policy = getattr(
+            config,
+            "precision_policy",
+            BF16_MIXED_PRECISION_POLICY,
+        )
         self._real_init(config)
         self._init_suffix_graph_runtime_state()
+        self.set_precision_policy(self.precision_policy)
 
     def _init_suffix_graph_runtime_state(self) -> None:
         self._suffix_graph_profiles = OrderedDict()
@@ -533,6 +550,29 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
 
         # Patch decoder layers to safely handle KV cache during checkpointing.
         patch_decoder_layers(self.model.vlm.model)
+
+    def set_precision_policy(self, precision_policy: str) -> None:
+        if precision_policy not in (
+            BF16_MIXED_PRECISION_POLICY,
+            FP32_MIXED_PRECISION_POLICY,
+        ):
+            raise ValueError(f"Invalid precision_policy: {precision_policy!r}")
+        self.precision_policy = precision_policy
+        self.config.precision_policy = precision_policy
+        self.model.action_expert.precision_policy = precision_policy
+
+    def fsdp_wrap_modules(self) -> list[nn.Module]:
+        """Return the fixed child-unit boundaries for DM05 FSDP wrapping."""
+        vlm_layers = self.model.vlm.model.language_model.layers
+        if len(vlm_layers) < self._FSDP_VLM_LAYERS_TO_WRAP:
+            raise ValueError(
+                "DM05 FSDP requires at least "
+                f"{self._FSDP_VLM_LAYERS_TO_WRAP} VLM layers, got {len(vlm_layers)}"
+            )
+        return [
+            self.model.action_expert,
+            *vlm_layers[-self._FSDP_VLM_LAYERS_TO_WRAP :],
+        ]
 
     def freeze_vlm_embedding(self):
         """Freeze the Gemma VLM token embedding layer.
@@ -570,12 +610,14 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         bf16: bool,
     ) -> str:
         if requested == "auto":
-            if bf16 and is_flash_attention_2_available():
+            if (
+                self.precision_policy == FP32_MIXED_PRECISION_POLICY or bf16
+            ) and is_flash_attention_2_available():
                 return "flash_attention_2"
             return "sdpa"
 
         if requested == "flash_attention_2":
-            if not bf16:
+            if self.precision_policy != FP32_MIXED_PRECISION_POLICY and not bf16:
                 raise ValueError("flash_attention_2 requires bf16=True")
             if not torch.cuda.is_available():
                 raise RuntimeError("flash_attention_2 requires CUDA")
@@ -797,9 +839,11 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
     ) -> Gemma3CausalLMOutputWithPast:
         """Run the training forward pass and compute flow-matching loss."""
         batch_size = input_ids.shape[0]
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            action = action.to(dtype=MODEL_DTYPE)
 
         # Step 1: prefix forward — history via unused0 scatter, current views via VLM.
-        kv_cache, prefix_len = self._compute_prefix_cache(
+        kv_cache, prefix_hidden_states = self._compute_prefix_cache(
             input_ids=input_ids,
             attention_mask=attention_mask,
             pixel_values=pixel_values,
@@ -808,6 +852,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             history_mask=history_mask,
             cache_cls=VLADynamicCache,
         )
+        prefix_len = prefix_hidden_states.shape[1]
 
         # Step 2: run suffix forward for flow matching.
         noise = torch.randn_like(action)
@@ -824,8 +869,8 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         u_t = noise - action
 
         # Build suffix embeddings and per-layer time conditioning.
-        suffix_embeds = self.model.action_in_proj(x_t)
-        adarms_cond = self._build_adarms_cond(time, suffix_embeds.dtype)
+        suffix_embeds = self._action_input_proj(x_t)
+        adarms_cond = self._build_adarms_cond(time)
 
         # Run suffix forward with fused attention.
         suffix_len = suffix_embeds.shape[1]
@@ -860,7 +905,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         )
 
         # Compute the flow-matching loss.
-        v_t = self.model.action_out_proj(suffix_out).to(torch.float32)
+        v_t = self._action_output_proj(suffix_out)
         u_t = u_t.to(dtype=v_t.dtype)
 
         elem_mse = F.mse_loss(v_t, u_t, reduction="none")  # [B, T, D]
@@ -869,9 +914,14 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             dim=(1, 2)
         )
         fm_loss = per_sample_fm.mean()
+        loss = fm_loss
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            # FSDP observes wrapped-module backward through returned tensors, while
+            # the action expert also consumes KV tensors written into the cache.
+            loss = loss + prefix_hidden_states.sum(dtype=torch.float32) * 0.0
 
         return DM05OutputWithPast(
-            loss=fm_loss,
+            loss=loss,
             fm_loss=fm_loss,
             logits=None,
             past_key_values=None,
@@ -943,7 +993,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         history_mask: torch.BoolTensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
-        kv_cache, prefix_len = self._compute_prefix_cache(
+        kv_cache, prefix_hidden_states = self._compute_prefix_cache(
             input_ids=input_ids,
             attention_mask=attention_mask,
             pixel_values=pixel_values,
@@ -952,6 +1002,8 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             history_mask=history_mask,
             cache_cls=DynamicCache,
         )
+        prefix_len = prefix_hidden_states.shape[1]
+        del prefix_hidden_states
 
         batch_size = input_ids.shape[0]
         device = input_ids.device
@@ -984,8 +1036,8 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             )
             if action_mask is not None:
                 x_t = x_t * action_mask
-            suffix_embeds = self.model.action_in_proj(x_t)
-            adarms_cond = self._build_adarms_cond(time_tensor, suffix_embeds.dtype)
+            suffix_embeds = self._action_input_proj(x_t)
+            adarms_cond = self._build_adarms_cond(time_tensor)
             suffix_len = int(suffix_embeds.shape[1])
             invisible_prefix_token_ids = (HISTORY_PAD_TOKEN_ID,)
             suffix_attn_mask = make_suffix_attn_mask(
@@ -1015,7 +1067,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
                 adarms_cond=adarms_cond,
             )
 
-            v_t = self.model.action_out_proj(suffix_out)
+            v_t = self._action_output_proj(suffix_out)
             x_t = x_t + v_t * dt
             time_val += dt
         return x_t
@@ -1378,7 +1430,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         history_pixel_values: torch.Tensor | None = None,
         history_mask: torch.BoolTensor | None = None,
         cache_cls: type[Cache] = DynamicCache,
-    ) -> tuple[Cache, int]:
+    ) -> tuple[Cache, torch.Tensor]:
         """Fill VLM KV cache; history images are injected separately from current views.
 
         History uses ``<unused0>`` placeholders replaced via vision features +
@@ -1450,8 +1502,8 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             "use_cache": True,
         }
 
-        self.model.vlm.model(**model_kwargs)
-        return kv_cache, kv_cache.get_seq_length()
+        prefix_outputs = self.model.vlm.model(**model_kwargs)
+        return kv_cache, prefix_outputs.last_hidden_state
 
     def _extract_prefix_cache_tensors(
         self,
@@ -1469,14 +1521,30 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
     def _build_adarms_cond(
         self,
         time: torch.Tensor,
-        dtype: torch.dtype,
     ) -> torch.Tensor:
         ae_hidden = self.model.action_in_proj.out_features
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            time_emb = posemb_sincos(time, ae_hidden, max_period=4.0).to(MODEL_DTYPE)
+            cond = linear_fp32(time_emb, self.model.time_mlp_in)
+            cond = F.silu(cond)
+            cond = linear_fp32(cond, self.model.time_mlp_out)
+            return F.silu(cond)
+
+        dtype = self.model.time_mlp_in.weight.dtype
         time_emb = posemb_sincos(time, ae_hidden, max_period=4.0).to(dtype)
         cond = self.model.time_mlp_in(time_emb)
         cond = F.silu(cond)
         cond = self.model.time_mlp_out(cond)
         return F.silu(cond)
+
+    def _action_input_proj(self, x: torch.Tensor) -> torch.Tensor:
+        return linear_fp32(x, self.model.action_in_proj).to(self._suffix_hidden_dtype())
+
+    def _action_output_proj(self, x: torch.Tensor) -> torch.Tensor:
+        return linear_fp32(x, self.model.action_out_proj)
+
+    def _suffix_hidden_dtype(self) -> torch.dtype:
+        return next(self.model.action_expert.parameters()).dtype
 
     def _build_suffix_position_ids(
         self,

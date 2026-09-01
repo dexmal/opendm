@@ -7,7 +7,7 @@ the processed multimodal prefix length.
 
 import bisect
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ import torch
 from loguru import logger
 from transformers.cache_utils import Cache, CacheLayerMixin
 
+from opendm.constants.precision import FP32_MIXED_PRECISION_POLICY
 from opendm.constants.robot import HISTORY_TOKENS_PER_IMAGE
 from opendm.infer.dm05_infer_arch import DM05FastForCausalLM
 from opendm.infer.dm05_trt_utils import (
@@ -25,7 +26,10 @@ from opendm.infer.dm05_trt_utils import (
     pool_image_features_to_history,
 )
 from opendm.model.dm05.dm05_arch import DM05ForConditionalGeneration
-from opendm.model.dm05.dm05_utils import mask_history_pad_tokens_in_attention
+from opendm.model.dm05.dm05_utils import (
+    dm05_autocast,
+    mask_history_pad_tokens_in_attention,
+)
 
 
 class StaticPrefixCacheLayer(CacheLayerMixin):
@@ -254,7 +258,13 @@ class DM05FastInferRuntime:
             prefix_capacity=self.prefix_len,
             minimum_prefix_len=minimum_prefix_len,
         )
-        self._initialize_graph_profiles()
+        with self._precision_context():
+            self._initialize_graph_profiles()
+
+    def _precision_context(self):
+        if self.model.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            return dm05_autocast(self.device)
+        return nullcontext()
 
     def _make_static_prefix_cache(self) -> Cache:
         cache_config = self.dm05.language_model.config
@@ -421,7 +431,7 @@ class DM05FastInferRuntime:
             batch_size=1,
             seq_len=self.suffix_len,
             max_kv_len=bucket_len + self.suffix_len,
-            dtype=self.noise_dtype,
+            dtype=self.model.suffix_kernel_dtype,
             device=self.device,
         )
         self._mark_static_tensors(
@@ -898,14 +908,15 @@ class DM05FastInferRuntime:
             dtype=self.noise_dtype,
             device=self.device,
         )
-        return self.infer(
-            images=pixel_values,
-            input_ids=input_ids,
-            diffusion_input_noise=diffusion_input_noise,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            diffusion_steps=diffusion_steps,
-            action_mask=action_mask,
-            history_pixel_values=history_pixel_values,
-            history_mask=history_mask,
-        )
+        with self._precision_context():
+            return self.infer(
+                images=pixel_values,
+                input_ids=input_ids,
+                diffusion_input_noise=diffusion_input_noise,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                diffusion_steps=diffusion_steps,
+                action_mask=action_mask,
+                history_pixel_values=history_pixel_values,
+                history_mask=history_mask,
+            )

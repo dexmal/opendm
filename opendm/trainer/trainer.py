@@ -7,9 +7,17 @@ import transformers
 from loguru import logger
 from transformers import Trainer, TrainingArguments
 
+from opendm.constants.precision import (
+    FP32_MIXED_PRECISION_POLICY,
+    FSDP_MIXED_PRECISION,
+    TF32_ENABLED,
+)
+
 
 class DMTrainer(Trainer):
     """Trainer extension for OpenDM model training."""
+
+    _FSDP_WRAP_ATTR = "_opendm_fsdp_wrap"
 
     def __init__(self, *args, **kwargs):
         self.exp_config: Any = kwargs.pop("exp_config")
@@ -35,6 +43,55 @@ class DMTrainer(Trainer):
             return super()._prepare_for_training(*args, **kwargs)
         finally:
             transformers.trainer.update_fsdp_plugin_peft = original_update
+
+    def create_accelerator_and_postprocess(self):
+        super().create_accelerator_and_postprocess()
+        self._configure_fsdp_precision()
+        self._configure_fsdp_auto_wrap()
+
+    @classmethod
+    def _fsdp_auto_wrap_policy(
+        cls,
+        module: torch.nn.Module,
+        recurse: bool,
+        nonwrapped_numel: int,
+    ) -> bool:
+        if recurse:
+            return True
+        return bool(getattr(module, cls._FSDP_WRAP_ATTR, False))
+
+    def _configure_fsdp_precision(self) -> None:
+        if self.exp_config.model_config.precision_policy != FP32_MIXED_PRECISION_POLICY:
+            return
+        fsdp_plugin = self.accelerator.state.fsdp_plugin
+        if fsdp_plugin is not None:
+            fsdp_plugin.set_mixed_precision(
+                FSDP_MIXED_PRECISION,
+                override=True,
+            )
+            logger.info(
+                "OpenDM FSDP mixed precision policy: {}",
+                FSDP_MIXED_PRECISION,
+            )
+
+    def _configure_fsdp_auto_wrap(self) -> None:
+        if self.exp_config.model_config.precision_policy != FP32_MIXED_PRECISION_POLICY:
+            return
+        fsdp_plugin = self.accelerator.state.fsdp_plugin
+        if fsdp_plugin is None:
+            return
+
+        modules = self.model.fsdp_wrap_modules()
+        for module in modules:
+            setattr(module, self._FSDP_WRAP_ATTR, True)
+
+        fsdp_plugin.auto_wrap_policy = self._fsdp_auto_wrap_policy
+        fsdp_plugin.transformer_cls_names_to_wrap = None
+        fsdp_plugin.min_num_params = 0
+        logger.info(
+            "OpenDM FSDP auto-wrap policy: action expert and final {} VLM layers",
+            len(modules) - 1,
+        )
 
     def _fsdp_qlora_plugin_updates(self):
         if getattr(self.exp_config, "use_lora", False):
@@ -107,8 +164,6 @@ class DMTrainer(Trainer):
             ),
             "dataloader_drop_last": True,
             # Keep model_max_length controlled by the model or processor config.
-            "bf16": self.exp_config.trainer_config.bf16,
-            "tf32": self.exp_config.trainer_config.tf32,
             "lr_scheduler_type": self.exp_config.trainer_config.lr_scheduler_type,
             "lr_scheduler_kwargs": self.exp_config.trainer_config.lr_scheduler_kwargs,
             "run_name": self.exp_config.trainer_config.run_name,
@@ -121,6 +176,22 @@ class DMTrainer(Trainer):
             "seed": getattr(self.exp_config.trainer_config, "seed", 42),
             "data_seed": getattr(self.exp_config.trainer_config, "seed", 42),
         }
+        if self.exp_config.model_config.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            linked_args.update(
+                {
+                    "bf16": True,
+                    "fp16": False,
+                    "tf32": TF32_ENABLED,
+                }
+            )
+        else:
+            linked_args.update(
+                {
+                    "bf16": self.exp_config.trainer_config.bf16,
+                    "fp16": False,
+                    "tf32": self.exp_config.trainer_config.tf32,
+                }
+            )
         linked_args["max_grad_norm"] = 1.0
 
         wandb_project = self.exp_config.trainer_config.wandb_project

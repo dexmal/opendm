@@ -6,6 +6,7 @@ import os
 import pathlib
 import sys
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from io import BytesIO
@@ -23,6 +24,11 @@ from transformers import AutoProcessor
 from werkzeug.exceptions import BadRequest
 
 import opendm.data.normalize as normalize
+from opendm.constants.precision import (
+    BF16_MIXED_PRECISION_POLICY,
+    FP32_MIXED_PRECISION_POLICY,
+    MODEL_DTYPE,
+)
 from opendm.constants.robot import ROBOT_STATE_DESCS, ActionMode, RobotType
 from opendm.data.augmentations import NoAugmentationPipeline, TrainingTransformPipeline
 from opendm.data.collator import NormStatsCollator, TrainingCollator
@@ -48,6 +54,10 @@ from opendm.model.dm05.dm05_lora import (
     load_dm05_model_for_inference,
     unwrap_dm05_model,
 )
+from opendm.model.dm05.dm05_utils import (
+    configure_fp32_precision_runtime,
+    dm05_autocast,
+)
 from opendm.optimizer import MuonAdamW, mark_muon_parameters
 from opendm.optimizer.muon_adamw import is_default_muon_parameter
 from opendm.trainer.trainer import DMTrainer, safe_save_model_for_hf_trainer
@@ -62,6 +72,9 @@ class Config:
 class DM05ModelConfig(Config):
     model_name_or_path: str | None = field(default="./checkpoints/DM05")
     chunk_size: int = field(default=50)
+    precision_policy: Literal["bf16_mixed", "fp32_mixed"] = field(
+        default=BF16_MIXED_PRECISION_POLICY
+    )
     bf16: bool = field(default=True)
     llm_attn_implementation: Literal["auto", "eager", "sdpa", "flex_attention"] = field(
         default="flex_attention"
@@ -84,7 +97,11 @@ class DM05ModelConfig(Config):
         }
 
     def _torch_dtype(self) -> torch.dtype:
-        return torch.bfloat16 if self.bf16 else torch.float32
+        if self.precision_policy == BF16_MIXED_PRECISION_POLICY:
+            return torch.bfloat16 if self.bf16 else torch.float32
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            return MODEL_DTYPE
+        raise ValueError(f"Invalid precision_policy: {self.precision_policy!r}")
 
     def _load_base_checkpoint_model(self) -> DM05ForConditionalGeneration:
         config = DM05Config.from_pretrained(self.model_name_or_path)
@@ -93,16 +110,31 @@ class DM05ModelConfig(Config):
         return DM05ForConditionalGeneration.from_pretrained(
             self.model_name_or_path,
             config=config,
-            torch_dtype=self._torch_dtype(),
+            dtype=self._torch_dtype(),
         )
 
     def _load_adapter_checkpoint_model(self) -> torch.nn.Module:
         return load_dm05_model_for_inference(
             self.model_name_or_path,
             config_overrides=self._config_overrides(),
+            dtype=self._torch_dtype(),
             trust_remote_code=True,
-            torch_dtype=self._torch_dtype(),
         )
+
+    def _set_precision_policy(self, model: torch.nn.Module) -> None:
+        dm05_model = unwrap_dm05_model(model)
+        dm05_model.set_precision_policy(self.precision_policy)
+
+    def _apply_precision_policy(self, model: torch.nn.Module) -> None:
+        if self.precision_policy == BF16_MIXED_PRECISION_POLICY:
+            return
+
+        if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
+            model.to(dtype=MODEL_DTYPE)
+            configure_fp32_precision_runtime()
+            return
+
+        raise ValueError(f"Invalid precision_policy: {self.precision_policy!r}")
 
     def _apply_runtime_model_options(
         self,
@@ -142,16 +174,23 @@ class DM05ModelConfig(Config):
     def build_model(self, use_lora: bool = False) -> torch.nn.Module:
         if _is_lora_checkpoint(self.model_name_or_path):
             model = self._load_adapter_checkpoint_model()
+            self._set_precision_policy(model)
             self._apply_runtime_model_options(model)
+            self._apply_precision_policy(model)
             return model
 
         model = self._load_base_checkpoint_model()
+        self._set_precision_policy(model)
         self._apply_runtime_model_options(model)
         self._apply_full_model_runtime_optimizations(model)
 
         if not use_lora:
+            self._apply_precision_policy(model)
             return model
-        return self._wrap_new_lora_for_training(model)
+        model = self._wrap_new_lora_for_training(model)
+        self._set_precision_policy(model)
+        self._apply_precision_policy(model)
+        return model
 
 
 @dataclass
@@ -825,7 +864,13 @@ class DM05InferenceConfig(Config):
                 **inference_kwargs,
             )
         else:
-            actions = self.model.inference_action(**inference_kwargs)
+            precision_context = (
+                dm05_autocast(self.device)
+                if dm05_model.precision_policy == FP32_MIXED_PRECISION_POLICY
+                else nullcontext()
+            )
+            with precision_context:
+                actions = self.model.inference_action(**inference_kwargs)
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         self.last_model_latency_sec = time.perf_counter() - model_t0

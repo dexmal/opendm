@@ -5,6 +5,7 @@ from functools import partial
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from transformers.cache_utils import Cache, CacheLayerMixin
 from transformers.modeling_layers import GradientCheckpointingLayer
 
@@ -21,6 +22,37 @@ except ImportError:
 
 
 from transformers.models.gemma3.modeling_gemma3 import Gemma3DecoderLayer
+
+from opendm.constants.precision import COMPUTE_DTYPE, TF32_ENABLED
+
+
+def dm05_autocast(device: torch.device | str):
+    """Run eligible DM05 operators in BF16 on the given device."""
+    device_type = device.type if isinstance(device, torch.device) else device
+    return torch.autocast(device_type=device_type, dtype=COMPUTE_DTYPE)
+
+
+def configure_fp32_precision_runtime() -> None:
+    """Apply the FP32 precision policy's global matmul settings."""
+    torch.set_float32_matmul_precision("highest")
+    torch.backends.cuda.matmul.allow_tf32 = TF32_ENABLED
+    torch.backends.cudnn.allow_tf32 = TF32_ENABLED
+
+
+def linear_fp32(x: torch.Tensor, linear: torch.nn.Module) -> torch.Tensor:
+    """Run a linear projection outside AMP using FP32 inputs and weights."""
+    with torch.autocast(device_type=x.device.type, enabled=False):
+        x = x.float()
+        if linear.__class__.__name__ == "ModulesToSaveWrapper":
+            linear = (
+                linear.original_module
+                if linear.disable_adapters
+                else linear.modules_to_save[linear.active_adapters[0]]
+            )
+        if type(linear) is torch.nn.Linear:
+            bias = None if linear.bias is None else linear.bias.float()
+            return F.linear(x, linear.weight.float(), bias)
+        return linear(x)
 
 
 def fused_linear_euler_update(

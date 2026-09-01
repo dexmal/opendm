@@ -1,8 +1,10 @@
 import os
 from dataclasses import dataclass, field
+from typing import Literal
 
 import tyro
 
+from opendm.constants.precision import FP32_MIXED_PRECISION_POLICY
 from opendm.exp.dm05_exp import (
     DM05DataConfig as _DM05DataConfig,
 )
@@ -11,6 +13,9 @@ from opendm.exp.dm05_exp import (
 )
 from opendm.exp.dm05_exp import (
     DM05InferenceConfig as _DM05InferenceConfig,
+)
+from opendm.exp.dm05_exp import (
+    DM05ModelConfig as _DM05ModelConfig,
 )
 from opendm.exp.dm05_exp import (
     DM05OptimizerConfig as _DM05OptimizerConfig,
@@ -23,6 +28,13 @@ from opendm.exp.dm05_exp import (
 @dataclass
 class DM05DataConfig(_DM05DataConfig):
     dataset_name: str = field(default="demo")
+
+
+@dataclass
+class DM05ModelConfig(_DM05ModelConfig):
+    precision_policy: Literal["bf16_mixed", "fp32_mixed"] = field(
+        default=FP32_MIXED_PRECISION_POLICY
+    )
 
 
 @dataclass
@@ -53,6 +65,7 @@ class DM05InferenceConfig(_DM05InferenceConfig):
 @dataclass
 class DM05Exp(_DM05Exp):
     use_lora: bool | None = field(default=False)
+    model_config: DM05ModelConfig = field(default_factory=DM05ModelConfig)
     optimizer_config: DM05OptimizerConfig = field(default_factory=DM05OptimizerConfig)
     trainer_config: DM05TrainerConfig = field(default_factory=DM05TrainerConfig)
     data_config: DM05DataConfig = field(default_factory=DM05DataConfig)

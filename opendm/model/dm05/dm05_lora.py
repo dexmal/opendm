@@ -356,14 +356,17 @@ def apply_lora_to_dm05_model(
 def load_dm05_model_for_inference(
     model_name_or_path: str,
     config_overrides: dict | None = None,
-    **from_pretrained_kwargs,
+    *,
+    dtype: torch.dtype,
+    trust_remote_code: bool = True,
 ) -> torch.nn.Module:
     if not _is_lora_checkpoint(model_name_or_path):
         config = _load_dm05_config_for_inference(model_name_or_path, config_overrides)
         return DM05ForConditionalGeneration.from_pretrained(
             model_name_or_path,
             config=config,
-            **from_pretrained_kwargs,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
         )
 
     try:
@@ -387,7 +390,8 @@ def load_dm05_model_for_inference(
     base_model = DM05ForConditionalGeneration.from_pretrained(
         base_model_path,
         config=config,
-        **from_pretrained_kwargs,
+        dtype=dtype,
+        trust_remote_code=trust_remote_code,
     )
     logger.info("Loading DM05 LoRA adapter from {}", model_name_or_path)
     model = PeftModel.from_pretrained(base_model, model_name_or_path)

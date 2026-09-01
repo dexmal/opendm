@@ -79,33 +79,65 @@ checkpoint 目录下的 `norm_stats.json`。推理会优先读取该文件，因
 
 ### 启动训练
 
-在 OpenDM 仓库根目录运行：
+RoboTwin 2.0 参考训练配置必须使用 4 机训练，每机 8 张 GPU。在每台机器的
+OpenDM 仓库根目录运行相同命令，并将 `<NODE_RANK>` 分别设为 `0`、`1`、`2`、
+`3`：
 
 ```bash
 script/dm05_launcher.sh \
   --exp playground/dm05_robotwin2.py \
   --task train \
   --nproc_per_node 8 \
+  --nnodes 4 \
+  --node_rank <NODE_RANK> \
+  --master_addr <MASTER_ADDR> \
+  --master_port 29500 \
   --data-config.dataset-name robotwin2_generalist \
   --model-config.model-name-or-path ./checkpoints/DM05 \
   --model-config.chunk-size 50 \
+  --trainer-config.per-device-train-batch-size 32 \
+  --trainer-config.gradient-accumulation-steps 1 \
   --trainer-config.num-train-steps 100000
 ```
+
+其中 `<MASTER_ADDR>` 为 node rank 0 机器的可访问地址。
+
+该参考训练配置要求 global batch size 必须为 `1024`，并且
+`gradient_accumulation_steps` 必须为 `1`。计算公式为：
+
+```text
+global batch size = 机器数 × 单机 GPU 数 × per-device train batch size × gradient accumulation steps
+                  = 4 × 8 × 32 × 1
+                  = 1024
+```
+
+因此该配置不能改成单机训练；如果修改 GPU 数量或单卡 batch size，需要保证
+`机器数 × 单机 GPU 数 × per-device train batch size = 1024`，且
+`gradient_accumulation_steps` 仍为 `1`。
 
 参数说明：
 
 - `--exp playground/dm05_robotwin2.py`：RoboTwin 2.0 训练和推理入口，预设了该
   embodiment 使用的数据集、action mode、优化器和训练参数。
 - `--task train`：启动训练。
-- `--nproc_per_node 8`：单节点使用的 GPU 数量，参考配置推荐使用 8 卡。
+- `--nproc_per_node 8`：每台机器使用 8 张 GPU。
+- `--nnodes 4`：必须使用 4 台机器参与训练。
+- `--node_rank <NODE_RANK>`：当前机器编号，4 台机器分别设为 `0`、`1`、`2`、`3`。
+- `--master_addr <MASTER_ADDR>`：node rank 0 机器的可访问地址。
+- `--master_port 29500`：多机训练 rendezvous 端口，需要保证各节点可访问。
 - `--data-config.dataset-name robotwin2_generalist`：
   `opendm/dataset/robotwin2.py` 中注册的数据集名称。
 - `--model-config.model-name-or-path ./checkpoints/DM05`：DM05 基础模型路径。
 - `--model-config.chunk-size 50`：action chunk 长度，训练、推理和评测必须保持一致。
+- `--trainer-config.per-device-train-batch-size 32`：每张 GPU 每次前向计算处理 32 个样本。
+- `--trainer-config.gradient-accumulation-steps 1`：每次反向传播后执行一次参数更新；
+  4 机 8 卡训练时配合单卡 batch size 32 将 global batch size 固定为 1024。
 - `--trainer-config.num-train-steps 100000`：总训练步数。
 
-默认训练输出目录为 `user_checkpoints/dm05_robotwin2`。如需调整 batch size、
-保存间隔、输出目录或总训练步数，可通过对应的命令行参数覆盖默认配置。
+默认训练输出目录为 `user_checkpoints/dm05_robotwin2`。如需调整单卡 batch size、
+保存间隔、输出目录或总训练步数，可通过对应的命令行参数覆盖默认配置；调整
+单卡 batch size 或 GPU 数量时，仍须保持 `gradient_accumulation_steps=1`，并确保
+global batch size 为 `1024`。
 
 ## RoboTwin 2.0 推理
 
