@@ -9,7 +9,7 @@ This document describes how to use `DM05` for model training, inference service 
 Before training, make sure the following preparation is complete:
 
 - **OpenDM environment installation and source initialization have been completed according to the official steps.**
-- Training and inference require GPU resources. Recommended GPUs include A100, H100, H20, and 4090.
+- Training and inference require GPU resources. Recommended GPUs include A100, H100, H20, and 4090. On lower-memory GPUs such as RTX 4090, Full SFT may fail due to peak memory use during FSDP initialization; LoRA fine-tuning is recommended.
 
 ### Data Preparation
 

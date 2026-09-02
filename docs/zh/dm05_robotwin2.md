@@ -15,7 +15,7 @@
 开始训练前，请确认已经完成以下准备：
 
 - 已按照官方步骤完成 OpenDM 环境安装和源码初始化。
-- 训练、推理和评测需要使用 NVIDIA GPU，推荐使用 A100、H100、H20、RTX 4090 等 GPU。
+- 训练、推理和评测需要使用 NVIDIA GPU，推荐使用 A100、H100、H20、RTX 4090 等 GPU。在 RTX 4090 等显存较小的 GPU 上执行 Full SFT 时，FSDP 初始化阶段的显存峰值可能导致训练失败，建议采用 LoRA 微调。
 - 如果环境中没有 `hf` 命令，请先安装 Hugging Face CLI：
 
 ```bash

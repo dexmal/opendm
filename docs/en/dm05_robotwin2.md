@@ -17,7 +17,8 @@ Before training, make sure the following preparation is complete:
 
 - OpenDM has been installed and initialized according to the official steps.
 - Training, inference, and evaluation require NVIDIA GPUs. Recommended GPUs
-  include A100, H100, H20, and RTX 4090.
+  include A100, H100, H20, and RTX 4090. On lower-memory GPUs such as RTX 4090,
+  Full SFT may fail due to peak memory use during FSDP initialization; LoRA fine-tuning is recommended.
 - Install the Hugging Face CLI if the `hf` command is not available:
 
 ```bash

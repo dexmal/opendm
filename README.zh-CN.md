@@ -162,6 +162,7 @@ Conda（可选）仅本地 pip 安装方式需要
 推荐 GPU：
 RTX 4090, A100, H100, H20
 训练建议使用 8 卡，部署推理使用 1 卡即可
+在 RTX 4090 等显存较小的 GPU 上执行 Full SFT 时，FSDP 初始化阶段的显存峰值可能导致训练失败，建议采用 LoRA 微调。
 ```
 
 下面的基础环境只覆盖训练和 default backend 推理。fast backend 还需要单独安装

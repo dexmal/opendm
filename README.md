@@ -163,6 +163,7 @@ Conda (optional, only required for local pip installation)
 Recommended GPUs:
 RTX 4090, A100, H100, H20
 8 GPUs are recommended for training, and 1 GPU is sufficient for deployment inference.
+On lower-memory GPUs such as RTX 4090, Full SFT may fail due to peak memory use during FSDP initialization; LoRA fine-tuning is recommended.
 ```
 
 The base environment below covers training and the default inference backend.
