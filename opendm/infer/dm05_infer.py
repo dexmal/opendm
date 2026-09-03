@@ -201,12 +201,15 @@ class DM05FastInferRuntime:
         self,
         model: DM05ForConditionalGeneration,
         vision_trt_engine_path: str | Path,
+        num_current_images: int,
         *,
         prefix_seq_len_buckets: list[int] | tuple[int, ...] | None = None,
         diffusion_steps: int = 10,
         is_history: bool = False,
+        max_history_images: int = MAX_HISTORY_IMAGES,
+        prefix_len: int = 1024,
     ) -> None:
-        self.model = DM05FastForCausalLM(model)
+        self.model = DM05FastForCausalLM(model, prefix_len=int(prefix_len))
         self.device = next(model.parameters()).device
         self.dm05 = self.model.dm05
         self.action_expert = self.model.action_expert
@@ -216,6 +219,8 @@ class DM05FastInferRuntime:
         self.action_dim = self.model.action_dim
         self.noise_dtype = self.model.noise_dtype
         self.is_history = bool(is_history)
+        self.max_history_images = int(max_history_images)
+        self.num_current_images = int(num_current_images)
         self.graph_diffusion_steps = int(diffusion_steps)
         if self.graph_diffusion_steps <= 0:
             raise ValueError(
@@ -234,25 +239,24 @@ class DM05FastInferRuntime:
         )
         self.vision_trt_num_images = int(self.vision_trt_runner.num_images)
         if self.is_history:
-            if self.vision_trt_num_images <= MAX_HISTORY_IMAGES:
+            expected_images = self.num_current_images + self.max_history_images
+            if self.vision_trt_num_images != expected_images:
                 raise ValueError(
                     "History-enabled fast inference requires a vision TensorRT "
-                    f"engine built for num_current+{MAX_HISTORY_IMAGES} images, "
-                    f"got num_images={self.vision_trt_num_images}."
+                    f"engine built for num_current+max_history={expected_images} "
+                    f"images, got num_images={self.vision_trt_num_images}."
                 )
-            self.num_current_images = self.vision_trt_num_images - MAX_HISTORY_IMAGES
             self._vision_trt_full_features = torch.empty(
                 self.vision_trt_runner.output_shape,
                 device=self.device,
                 dtype=self.vision_trt_runner.output_dtype,
             )
         else:
-            self.num_current_images = self.vision_trt_num_images
             self._vision_trt_full_features = None
         tokens_per_image = int(self.dm05.vlm.model.config.mm_tokens_per_image)
         minimum_prefix_len = self.num_current_images * (tokens_per_image + 1)
         if self.is_history:
-            minimum_prefix_len += MAX_HISTORY_IMAGES * HISTORY_TOKENS_PER_IMAGE
+            minimum_prefix_len += self.max_history_images * HISTORY_TOKENS_PER_IMAGE
         self.prefix_seq_len_buckets = self.resolve_prefix_seq_len_buckets(
             prefix_seq_len_buckets,
             prefix_capacity=self.prefix_len,
@@ -358,7 +362,7 @@ class DM05FastInferRuntime:
         packed, num_history = pack_current_and_history_pixels(
             current_images,
             history_pixel_values,
-            max_history=MAX_HISTORY_IMAGES,
+            max_history=self.max_history_images,
         )
         if int(packed.shape[0]) != self.vision_trt_num_images:
             raise ValueError(
@@ -599,9 +603,9 @@ class DM05FastInferRuntime:
             and bool(history_mask.any().item())
         )
         if has_history_pixels:
-            if int(history_pixel_values.shape[0]) > MAX_HISTORY_IMAGES:
+            if int(history_pixel_values.shape[0]) > self.max_history_images:
                 raise ValueError(
-                    f"At most {MAX_HISTORY_IMAGES} history images are supported, "
+                    f"At most {self.max_history_images} history images are supported, "
                     f"got {int(history_pixel_values.shape[0])}."
                 )
             return self._run_with_history_without_capture(
@@ -797,7 +801,7 @@ class DM05FastInferRuntime:
         while real history slots are pooled to 16 tokens and scattered into
         ``<unused0>``. Empty history slots are zero-image pads discarded after TRT.
         Prefix/suffix keep fast kernels but skip startup-captured graphs because
-        history length still varies per request (0-5 images).
+        history length still varies per request (0-max_history images).
         """
         self.history_uncaptured_count += 1
         if self.history_uncaptured_count == 1:

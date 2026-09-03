@@ -87,9 +87,11 @@ class Normalize:
     Args:
         norm_stats_path: Path to a JSON file containing a ``norm_stats`` object.
         norm_keys: Sample keys to normalize in place.
-        use_quantiles: If ``True``, clip and scale values with q01/q99
-            quantiles to the range ``[-1, 1]``. If ``False``, standardize with
-            mean and standard deviation.
+        use_quantiles: If ``True``, scale values with q01/q99 quantiles to
+            ``[-1, 1]``. If ``False``, standardize with mean and standard
+            deviation.
+        clip_to_bounds: If ``True`` (default), clip to ``[q01, q99]`` before
+            quantile scaling.
     """
 
     def __init__(
@@ -98,6 +100,7 @@ class Normalize:
         norm_keys: list[str],
         use_quantiles: bool = True,
         norm_stats_file: NormStatsFile | None = None,
+        clip_to_bounds: bool = True,
     ):
         self.norm_stats_path = norm_stats_path
         self.norm_stats_file = norm_stats_file or load_norm_stats_file(norm_stats_path)
@@ -106,10 +109,14 @@ class Normalize:
         self.norm_stats = self.norm_stats_file.norm_stats
         self.norm_keys = norm_keys
         self.use_quantiles = use_quantiles
+        self.clip_to_bounds = clip_to_bounds
 
     def __call__(self, data, **kw):
-        robot_type = data.get("meta_data", {}).get("robot_type")
-        norm_stats = self.norm_stats_file.select(robot_type)
+        meta = data.get("meta_data", {})
+        norm_stats = self.norm_stats_file.select(
+            meta.get("robot_type"),
+            control_mode=meta.get("control_mode"),
+        )
         for key in self.norm_keys:
             if key not in norm_stats:
                 continue
@@ -125,7 +132,8 @@ class Normalize:
                 raise ValueError("q01 and q99 are required for quantile normalization")
             lo = np.asarray(stats.q01, dtype=np.float32)
             hi = np.asarray(stats.q99, dtype=np.float32)
-            arr = np.clip(arr, lo, hi)
+            if self.clip_to_bounds:
+                arr = np.clip(arr, lo, hi)
             out = ((arr - lo) / (hi - lo + 1e-6) * 2.0 - 1.0).astype(np.float32)
             return np.where((lo == 0) & (hi == 0), 0.0, out)
 
@@ -158,8 +166,11 @@ class Denormalize:
         self.use_quantiles = use_quantiles
 
     def __call__(self, data, **kw):
-        robot_type = data.get("meta_data", {}).get("robot_type")
-        norm_stats = self.norm_stats_file.select(robot_type)
+        meta = data.get("meta_data", {})
+        norm_stats = self.norm_stats_file.select(
+            meta.get("robot_type"),
+            control_mode=meta.get("control_mode"),
+        )
         for key in self.norm_keys:
             if key in data and key in norm_stats:
                 data[key] = self._denormalize(data[key], norm_stats[key])
@@ -419,6 +430,106 @@ class BuildAction:
         return self.build_pipeline(data, **kw)
 
 
+def _normalize_quat(quat: np.ndarray) -> np.ndarray:
+    return quat / np.maximum(np.linalg.norm(quat, axis=-1, keepdims=True), 1e-8)
+
+
+def _rotvec_to_quat(rotvec: np.ndarray) -> np.ndarray:
+    rotvec = np.asarray(rotvec, dtype=np.float32)
+    angle = np.linalg.norm(rotvec, axis=-1, keepdims=True)
+    half_angle = 0.5 * angle
+    scale = np.where(
+        angle > 1e-8,
+        np.sin(half_angle) / np.maximum(angle, 1e-8),
+        0.5 - (angle * angle) / 48.0,
+    )
+    quat = np.concatenate([np.cos(half_angle), rotvec * scale], axis=-1)
+    return _normalize_quat(quat).astype(np.float32)
+
+
+def _quat_to_rotvec(quat: np.ndarray) -> np.ndarray:
+    quat = _normalize_quat(np.asarray(quat, dtype=np.float32))
+    quat = np.where(quat[..., :1] < 0, -quat, quat)
+    vec = quat[..., 1:4]
+    vec_norm = np.linalg.norm(vec, axis=-1, keepdims=True)
+    angle = 2.0 * np.arctan2(vec_norm, quat[..., :1])
+    rotvec = np.where(
+        vec_norm > 1e-8,
+        vec * (angle / np.maximum(vec_norm, 1e-8)),
+        np.zeros_like(vec),
+    )
+    return rotvec.astype(np.float32)
+
+
+def _quat_multiply(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    lw, lx, ly, lz = [left[..., i] for i in range(4)]
+    rw, rx, ry, rz = [right[..., i] for i in range(4)]
+    quat = np.stack(
+        [
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ],
+        axis=-1,
+    )
+    return _normalize_quat(quat).astype(np.float32)
+
+
+def rpy_to_axis_angle(rpy) -> np.ndarray:
+    """Convert roll/pitch/yaw to axis-angle using Rz(yaw) @ Ry(pitch) @ Rx(roll)."""
+    rpy = np.asarray(rpy, dtype=np.float32)
+    roll = rpy[..., 0]
+    pitch = rpy[..., 1]
+    yaw = rpy[..., 2]
+    cr = np.cos(roll * 0.5)
+    sr = np.sin(roll * 0.5)
+    cp = np.cos(pitch * 0.5)
+    sp = np.sin(pitch * 0.5)
+    cy = np.cos(yaw * 0.5)
+    sy = np.sin(yaw * 0.5)
+    quat = np.stack(
+        [
+            cy * cp * cr + sy * sp * sr,
+            cy * cp * sr - sy * sp * cr,
+            sy * cp * sr + cy * sp * cr,
+            sy * cp * cr - cy * sp * sr,
+        ],
+        axis=-1,
+    )
+    return _quat_to_rotvec(quat)
+
+
+class ArrangeState:
+    """Rewrite xyz+rpy+grip arms to xyz+axis-angle+grip. No-op unless EEF."""
+
+    def __call__(self, data, **kw):
+        del kw
+        meta = dict(data.get("meta_data") or {})
+        if meta.get("control_mode") not in {"eef", "ee", "end effector"}:
+            return data
+        native = np.asarray(data["state"], dtype=np.float32).reshape(-1)
+        if native.size not in (7, 14):
+            raise ValueError(
+                f"EEF ArrangeState expects 7 or 14 dims, got {native.size}"
+            )
+        parts = []
+        desc = []
+        for start in range(0, native.size, 7):
+            arm = native[start : start + 7]
+            parts.append(
+                np.concatenate(
+                    [arm[:3], rpy_to_axis_angle(arm[3:6]), arm[6:7]],
+                    axis=-1,
+                )
+            )
+            desc.extend([RobotStateDesc.EEF] * 6 + [RobotStateDesc.GRIPPER])
+        data["state"] = np.concatenate(parts, axis=-1).astype(np.float32)
+        meta["state_desc"] = desc
+        data["meta_data"] = meta
+        return data
+
+
 class ActionAbsolute:
     """Convert delta action targets back to absolute targets.
 
@@ -428,10 +539,8 @@ class ActionAbsolute:
     Args:
         non_delta_ids: State descriptor names or enum values that were not
             delta-encoded and should be preserved from ``action``.
-
-    Raises:
-        AssertionError: If required state, action, or metadata fields are
-            missing.
+        compose_eef_rot: If ``True``, quaternion-compose each EEF
+            axis-angle triple from ``state_desc`` instead of ``state + delta``.
     """
 
     def __init__(
@@ -439,8 +548,10 @@ class ActionAbsolute:
         non_delta_ids: tuple[RobotStateDesc | str, ...] | list[RobotStateDesc | str] = (
             RobotStateDesc.GRIPPER,
         ),
+        compose_eef_rot: bool = False,
     ):
         self.non_delta_ids = {_state_desc_value(desc) for desc in non_delta_ids}
+        self.compose_eef_rot = compose_eef_rot
 
     def __call__(self, data):
         assert "state" in data and "action" in data, (
@@ -467,6 +578,31 @@ class ActionAbsolute:
         if non_delta_indices:
             abs_action[..., non_delta_indices] = data["action"][..., non_delta_indices]
 
+        if self.compose_eef_rot:
+            eef_id = _state_desc_value(RobotStateDesc.EEF)
+            values = [_state_desc_value(sid) for sid in state_desc]
+            i = 0
+            while i < len(values):
+                if values[i] != eef_id:
+                    i += 1
+                    continue
+                start = i
+                while i < len(values) and values[i] == eef_id:
+                    i += 1
+                if i - start < 6:
+                    continue
+                rot = slice(start + 3, start + 6)
+                current = data["state"][..., rot]
+                delta = data["action"]
+                if delta.ndim == current.ndim + 1:
+                    current = current[..., None, :]
+                abs_action[..., rot] = _quat_to_rotvec(
+                    _quat_multiply(
+                        _rotvec_to_quat(delta[..., rot]),
+                        _rotvec_to_quat(current),
+                    )
+                )
+
         data["action"] = abs_action
         return data
 
@@ -475,9 +611,9 @@ class ChatTokenization:
     """Tokenize a multimodal robot sample with a chat template.
 
     Current-view images are interleaved via the processor chat template.
-    Optional history images use ``<unused0>`` placeholders
-    (``HISTORY_TOKENS_PER_IMAGE`` per image) and are injected separately in the
-    model prefix forward.
+    History uses a fixed 32-slot grid: empty slots are ``<unused1>`` pads,
+    valid images are ``<unused0>`` placeholders (``HISTORY_TOKENS_PER_IMAGE``
+    each) and are injected separately in the model prefix forward.
 
     Args:
         processor: Multimodal processor or tokenizer-compatible object with
@@ -537,7 +673,13 @@ class ChatTokenization:
         if meta.get("robot_type") is not None:
             text_parts.append(f"Robot: {meta['robot_type']}\n")
         if meta.get("control_mode") is not None:
-            text_parts.append(f"Control mode: {meta['control_mode']}\n")
+            control_mode = meta["control_mode"]
+            control_mode = (
+                "end effector"
+                if control_mode in {"eef", "ee", "end effector"}
+                else control_mode
+            )
+            text_parts.append(f"Control mode: {control_mode}\n")
         speed = meta.get("speed") or "0.5"
         assert isinstance(speed, str), (
             f"Expected speed to be a string, got {type(speed)}"
@@ -549,10 +691,12 @@ class ChatTokenization:
         history_pixel_values = None
         history_mask = None
         if self.is_history:
-            history_images = data.get("history_images") or []
+            history_images = list(data.get("history_images") or [])[-32:]
+            n_valid = len(history_images)
             user_content[-1]["text"] += "History images: "
-            user_content[-1]["text"] += "<unused0>" * (
-                HISTORY_TOKENS_PER_IMAGE * len(history_images)
+            user_content[-1]["text"] += (
+                "<unused1>" * (HISTORY_TOKENS_PER_IMAGE * (32 - n_valid))
+                + (("<unused0>" * HISTORY_TOKENS_PER_IMAGE) + "\n") * n_valid
             )
             normalized = [image.convert("RGB") for image in history_images]
             if normalized:

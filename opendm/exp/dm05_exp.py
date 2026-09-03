@@ -35,6 +35,7 @@ from opendm.data.collator import NormStatsCollator, TrainingCollator
 from opendm.data.dataset import JsonlDataset
 from opendm.data.transforms import (
     ActionAbsolute,
+    ArrangeState,
     BuildAction,
     ChatTokenization,
     Denormalize,
@@ -499,6 +500,12 @@ class DM05InferenceConfig(Config):
     vision_trt_engine_path: str | None = field(default=None)
     force_rebuild: bool = field(default=False)
     prefix_seq_len_buckets: list[int] | None = field(default=None)
+    clip_to_bounds: bool = field(default=True)
+    compose_eef_rot: bool = field(default=False)
+    full_action_mask: bool = field(default=False)
+    use_transformed_state: bool = field(default=False)
+    state_layout: str = field(default="identity")
+    denorm_state: bool = field(default=False)
 
     @staticmethod
     def _norm_vector_dim(stats: normalize.NormStats, field_name: str) -> int:
@@ -552,11 +559,11 @@ class DM05InferenceConfig(Config):
             from opendm.infer.dm05_trt_utils import ensure_dm05_fast_inference_engine
 
             dm05_model = unwrap_dm05_model(model)
+            max_history_images = int(self.max_history_images)
+            fast_prefix_len = int(getattr(self, "fast_prefix_len", None) or 1024)
             num_vision_images = len(self.image_prompts)
             if is_history:
-                from opendm.infer.dm05_trt_utils import MAX_HISTORY_IMAGES
-
-                num_vision_images += MAX_HISTORY_IMAGES
+                num_vision_images += max_history_images
             engine_path = ensure_dm05_fast_inference_engine(
                 checkpoint=model_name_or_path,
                 engine_path=self.vision_trt_engine_path,
@@ -571,6 +578,9 @@ class DM05InferenceConfig(Config):
                 prefix_seq_len_buckets=self.prefix_seq_len_buckets,
                 diffusion_steps=self.diffusion_steps,
                 is_history=is_history,
+                max_history_images=max_history_images,
+                prefix_len=fast_prefix_len,
+                num_current_images=len(self.image_prompts),
             )
             vlm_model = dm05_model.model.vlm.model
             self.fast_image_token_id = int(vlm_model.config.image_token_id)
@@ -596,10 +606,11 @@ class DM05InferenceConfig(Config):
             norm_keys=["state"],
             use_quantiles=True,
             norm_stats_file=self.norm_stats_file,
+            clip_to_bounds=self.clip_to_bounds,
         )
         output_denormalize = Denormalize(
             norm_stats_path=norm_stats_path,
-            norm_keys=["action"],
+            norm_keys=["action", "state"] if self.denorm_state else ["action"],
             use_quantiles=True,
             norm_stats_file=self.norm_stats_file,
         )
@@ -635,7 +646,10 @@ class DM05InferenceConfig(Config):
                     f"profiles: {incompatible_profiles}"
                 )
 
-        self.input_transform = Pipeline(
+        input_steps = []
+        if self.compose_eef_rot:
+            input_steps.append(ArrangeState())
+        input_steps.extend(
             [
                 PixelTransform(
                     transform_pipeline=NoAugmentationPipeline(),
@@ -653,10 +667,15 @@ class DM05InferenceConfig(Config):
                 ToDevice(device=self.device),
             ]
         )
+        self.input_transform = Pipeline(input_steps)
         self.output_transform = Pipeline(
             [
                 output_denormalize,
-                *([ActionAbsolute()] if use_absolute_action else []),
+                *(
+                    [ActionAbsolute(compose_eef_rot=self.compose_eef_rot)]
+                    if use_absolute_action
+                    else []
+                ),
             ]
         )
 
@@ -780,16 +799,12 @@ class DM05InferenceConfig(Config):
                 "--data-config.is-history."
             )
         if history_images:
-            from opendm.infer.dm05_trt_utils import MAX_HISTORY_IMAGES
-
             max_history_images = int(self.max_history_images)
             if max_history_images < 0:
                 raise ValueError(
                     "inference max_history_images must be non-negative, got "
                     f"{max_history_images}."
                 )
-            if self.backend == "fast":
-                max_history_images = min(max_history_images, MAX_HISTORY_IMAGES)
             if len(history_images) > max_history_images:
                 raise ValueError(
                     f"At most {max_history_images} history images are supported, "
@@ -804,7 +819,6 @@ class DM05InferenceConfig(Config):
             for i, img in enumerate(history_images or [])
         ]
         state = self._parse_state(states)
-
         return {
             "images": pil_images,
             "history_images": pil_history_images,
@@ -820,8 +834,9 @@ class DM05InferenceConfig(Config):
 
     def _predict(self, data: dict) -> np.ndarray:
         self.last_model_latency_sec = None
-        state = data["state"]
+        original_state = data["state"]
         model_input = self.input_transform(data)
+        state = data["state"] if self.use_transformed_state else original_state
         inference_seed = os.environ.get("DM05_INFERENCE_SEED")
         if inference_seed is not None:
             seed = int(inference_seed)
@@ -838,14 +853,12 @@ class DM05InferenceConfig(Config):
 
         dm05_model = unwrap_dm05_model(self.model)
         action_dim = dm05_model.model.config.action_dim
-        action_mask = torch.zeros(
-            1,
-            1,
-            action_dim,
-            device=self.device,
-            dtype=dm05_model.model.action_in_proj.weight.dtype,
-        )
-        action_mask[..., : self.output_action_dim] = 1.0
+        dtype = dm05_model.model.action_in_proj.weight.dtype
+        if self.full_action_mask:
+            action_mask = torch.ones(1, 1, action_dim, device=self.device, dtype=dtype)
+        else:
+            action_mask = torch.zeros(1, 1, action_dim, device=self.device, dtype=dtype)
+            action_mask[..., : self.output_action_dim] = 1.0
         inference_kwargs = {
             "input_ids": model_input["input_ids"],
             "attention_mask": model_input["attention_mask"],
@@ -1158,6 +1171,9 @@ class DM05Exp(Config):
             DM05FastInferRuntime.resolve_prefix_seq_len_buckets(
                 self.inference_config.prefix_seq_len_buckets,
                 fast_backend=use_fast_backend,
+                prefix_capacity=int(
+                    getattr(self.inference_config, "fast_prefix_len", None) or 1024
+                ),
             )
         self.model_config.llm_attn_implementation = (
             "flex_attention" if use_fast_backend else "eager"

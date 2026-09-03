@@ -600,6 +600,7 @@ class DM05FastForCausalLM:
     def __init__(
         self,
         model: DM05ForConditionalGeneration,
+        prefix_len: int = 1024,
     ) -> None:
         self.model = model
         self.dm05 = model.model
@@ -613,7 +614,7 @@ class DM05FastForCausalLM:
         )
         self.padding_idx = int(self.dm05.vlm.model.language_model.padding_idx)
         # Maximum processed multimodal prefix length supported by FastInfer.
-        self.prefix_len = 1024
+        self.prefix_len = int(prefix_len)
         self.suffix_len = int(self.dm05.config.chunk_size)
         self.action_dim = int(self.dm05.config.action_dim)
         self.noise_dtype = self.dm05.action_in_proj.weight.dtype

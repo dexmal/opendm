@@ -63,6 +63,7 @@ Before the first fast launch, confirm:
 | Base pretrained model | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
+| DM05-MEM | `playground/dm05_mem.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
 | Demo or custom SFT | `playground/dm05_sft_demo.py` or your own entry | Your SFT checkpoint | Training value | Training value | Training value |
 | LIBERO LoRA | `playground/dm05_libero_lora.py` | A LIBERO LoRA step checkpoint | 10 | 2 | 7 |
 
@@ -166,6 +167,31 @@ script/dm05_launcher.sh \
 
 The RoboTwin 2.0 entry point uses three images, a 14-dimensional state/action,
 and the `Aloha RoboTwin2` robot type.
+
+### DM05-MEM
+
+Download the released checkpoint:
+
+```bash
+hf download Dexmal/DM05-MEM \
+  --local-dir ./checkpoints/DM05-MEM
+```
+
+Start the service:
+
+```bash
+script/dm05_launcher.sh \
+  --exp playground/dm05_mem.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05-MEM \
+  --inference-config.port 7891
+```
+
+The DM05-MEM entry point uses three images, a 14-dimensional
+state/action, and the `DOS W1` robot type. `observation.control_mode`
+defaults to `joint`; set it to `eef` for end-effector control. History
+defaults to 32 frames on both backends; FastInfer needs a matching 35-image
+TensorRT engine.
 
 ### Demo or Custom SFT
 

@@ -1476,6 +1476,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
                 image_features = grid.permute(0, 2, 3, 1).reshape(
                     -1, HISTORY_POOL_SIZE * HISTORY_POOL_SIZE, hidden
                 )
+                image_features = image_features.to(dtype=inputs_embeds.dtype)
 
                 history_mask_expanded = history_mask.unsqueeze(-1).expand_as(
                     inputs_embeds

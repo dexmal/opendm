@@ -151,6 +151,7 @@ class RunningStats:
 
 class _NormStatsDict(pydantic.BaseModel):
     norm_stats: dict[str, NormStats]
+    control_modes: dict[str, dict[str, NormStats]] | None = None
 
 
 class _MultiRobotNormStatsDict(pydantic.BaseModel):
@@ -230,6 +231,7 @@ class NormStatsFile:
             dict[str, NormStats],
         ]
         | None = None,
+        control_modes: dict[str, dict[str, NormStats]] | None = None,
     ):
         self.norm_stats = dict(norm_stats)
         self.default_robot_type = default_robot_type
@@ -241,6 +243,11 @@ class NormStatsFile:
             if norm_stats_by_robot is not None
             else None
         )
+        self.control_modes = (
+            {mode: dict(stats) for mode, stats in control_modes.items()}
+            if control_modes is not None
+            else None
+        )
         self._legacy_warning_emitted = False
 
     @property
@@ -250,6 +257,7 @@ class NormStatsFile:
     def select(
         self,
         robot_type: str | Enum | None = None,
+        control_mode: str | None = None,
     ) -> dict[str, NormStats]:
         """Select statistics for a robot while preserving legacy behavior."""
         robot_type_value = _robot_type_value(robot_type)
@@ -261,16 +269,27 @@ class NormStatsFile:
                     robot_type_value,
                 )
                 self._legacy_warning_emitted = True
-            return self.norm_stats
-
-        selected_robot_type = robot_type_value or self.default_robot_type
-        if selected_robot_type not in self.norm_stats_by_robot:
-            supported = sorted(self.norm_stats_by_robot)
+            selected = self.norm_stats
+        else:
+            selected_robot_type = robot_type_value or self.default_robot_type
+            if selected_robot_type not in self.norm_stats_by_robot:
+                supported = sorted(self.norm_stats_by_robot)
+                raise ValueError(
+                    f"Norm stats are unavailable for robot_type "
+                    f"{selected_robot_type!r}. Available: {supported}"
+                )
+            selected = self.norm_stats_by_robot[selected_robot_type]
+        if self.control_modes is None or not control_mode:
+            return selected
+        mode = str(control_mode)
+        if mode in {"ee", "end effector"}:
+            mode = "eef"
+        if mode not in self.control_modes:
             raise ValueError(
-                f"Norm stats are unavailable for robot_type "
-                f"{selected_robot_type!r}. Available: {supported}"
+                f"Norm stats are unavailable for control_mode {control_mode!r}. "
+                f"Available: {sorted(self.control_modes)}"
             )
-        return self.norm_stats_by_robot[selected_robot_type]
+        return self.control_modes[mode]
 
 
 def deserialize_norm_stats_file(data: str) -> NormStatsFile:
@@ -278,7 +297,13 @@ def deserialize_norm_stats_file(data: str) -> NormStatsFile:
     loaded = json.loads(data)
     if "norm_stats_by_robot" not in loaded:
         legacy = _NormStatsDict(**loaded)
-        return NormStatsFile(norm_stats=legacy.norm_stats)
+        if legacy.control_modes:
+            for mode, profile in legacy.control_modes.items():
+                _validate_robot_profile(mode, profile)
+        return NormStatsFile(
+            norm_stats=legacy.norm_stats,
+            control_modes=legacy.control_modes,
+        )
 
     parsed = _MultiRobotNormStatsDict(**loaded)
     profiles = _normalize_profile_keys(parsed.norm_stats_by_robot)

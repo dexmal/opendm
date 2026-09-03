@@ -56,6 +56,7 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 | 基础预训练模型 | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
+| DM05-MEM | `playground/dm05_mem.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
 | Demo 或自定义 SFT | `playground/dm05_sft_demo.py` 或自定义入口 | SFT checkpoint | 训练值 | 训练值 | 训练值 |
 | LIBERO LoRA | `playground/dm05_libero_lora.py` | LIBERO LoRA step checkpoint | 10 | 2 | 7 |
 
@@ -151,6 +152,29 @@ script/dm05_launcher.sh \
 ```
 
 RoboTwin 2.0 入口使用三张图片、14 维 state/action 和 `Aloha RoboTwin2` robot type。
+
+### DM05-MEM
+
+下载发布的 checkpoint：
+
+```bash
+hf download Dexmal/DM05-MEM \
+  --local-dir ./checkpoints/DM05-MEM
+```
+
+启动服务：
+
+```bash
+script/dm05_launcher.sh \
+  --exp playground/dm05_mem.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05-MEM \
+  --inference-config.port 7891
+```
+
+DM05-MEM 入口使用三张图片、14 维 state/action 和 `DOS W1`
+robot type。默认 `observation.control_mode` 为 `joint`；需要末端位姿控制时传
+`eef`。历史帧默认 32；FastInfer 需要匹配的 35 图 TensorRT engine。
 
 ### Demo 或自定义 SFT
 
