@@ -313,3 +313,52 @@ def make_suffix_attn_mask(
 
     mask = torch.cat([prefix_mask, suffix_mask], dim=2)
     return mask.unsqueeze(1)
+
+
+def masked_flow_matching_loss(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    action_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Return per-sample flow-matching MSE with safe action masking.
+
+    ``action_mask`` may be shaped ``[B, T, D]`` or broadcastable to that
+    shape (for example ``[B, 1, D]``).  The mask is expanded before computing
+    the denominator so a singleton dimension cannot under-count valid action
+    elements.  Samples with no valid elements contribute an exact zero rather
+    than a NaN, which is important for batches containing fully padded
+    episodes.
+
+    Returns:
+        A tensor of shape ``[B]`` containing one normalized loss per sample.
+    """
+    if prediction.shape != target.shape:
+        raise ValueError(
+            "prediction and target must have identical shapes; got "
+            f"{tuple(prediction.shape)} and {tuple(target.shape)}"
+        )
+    if prediction.ndim < 2:
+        raise ValueError("flow-matching tensors must include batch and action axes")
+
+    squared_error = (prediction - target).square()
+    if action_mask is None:
+        return squared_error.reshape(squared_error.shape[0], -1).mean(dim=1)
+
+    try:
+        expanded_mask = torch.broadcast_to(
+            action_mask.to(device=prediction.device),
+            prediction.shape,
+        )
+    except RuntimeError as exc:
+        raise ValueError(
+            "action_mask must be broadcastable to prediction shape; got "
+            f"{tuple(action_mask.shape)} and {tuple(prediction.shape)}"
+        ) from exc
+
+    expanded_mask = expanded_mask.to(dtype=squared_error.dtype)
+    flat_error = squared_error.reshape(squared_error.shape[0], -1)
+    flat_mask = expanded_mask.reshape(expanded_mask.shape[0], -1)
+    denominator = flat_mask.sum(dim=1)
+    numerator = (flat_error * flat_mask).sum(dim=1)
+    normalized = numerator / denominator.clamp_min(1.0)
+    return torch.where(denominator > 0, normalized, torch.zeros_like(normalized))

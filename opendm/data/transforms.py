@@ -233,7 +233,11 @@ class BuildActionChunk:
     ``meta_data["frame_index"]``. If the current sample already contains an
     ``action`` field, the chunk starts at the current frame. Otherwise, it uses
     future ``state`` values starting at the next frame as action targets. Values
-    past the episode end repeat the last available value.
+    past the episode end repeat the last available value for shape stability,
+    while ``action_mask`` marks those repeated values as invalid training
+    targets. Keeping the padded tail out of the objective prevents a short
+    episode from teaching the policy to hold its terminal state for an
+    arbitrarily long horizon.
 
     Args:
         action_horizon: Number of timesteps to include in the action chunk.
@@ -275,12 +279,16 @@ class BuildActionChunk:
             start = frame_index + 1
 
         values = []
+        valid_steps = []
         last_value = None
         for step in range(self.action_horizon):
             raw_idx = start + step
             if raw_idx <= episode_term:
                 frame = orjson.loads(lines[raw_idx])
                 last_value = np.asarray(frame[read_key], dtype=np.float32)
+                valid_steps.append(True)
+            else:
+                valid_steps.append(False)
             assert last_value is not None, (
                 "No valid action or state values found in episode"
             )
@@ -290,7 +298,13 @@ class BuildActionChunk:
         )
 
         data["action"] = np.stack(values, axis=0)[None, ...]
-        data["action_mask"] = np.ones_like(data["action"], dtype=bool)
+        # Keep the repeated tail in ``action`` so collators and inference keep a
+        # fixed shape, but do not let it contribute to normalization or loss.
+        step_mask = np.asarray(valid_steps, dtype=bool)[:, None]
+        data["action_mask"] = np.broadcast_to(
+            step_mask,
+            data["action"].shape[1:],
+        )[None, ...].copy()
         return data
 
 
