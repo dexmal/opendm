@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 from robot.interface_client import InterfaceClient
 from robot.job_worker import job_loop
 from runner import InferenceRunner
-from utils.constants import get_robot_image_config, get_task_metadata
+from utils.constants import get_robot_image_config
 
 
 def get_runtime_profile_from_config(cfg: DictConfig, robot_type: str) -> dict:
@@ -33,6 +33,14 @@ def to_plain_dict(value) -> dict:
     if isinstance(value, dict):
         return dict(value)
     return dict(OmegaConf.to_container(value, resolve=True))
+
+
+def to_bool(value, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def get_task_override(cfg: DictConfig, task_name: str | None) -> dict:
@@ -298,11 +306,29 @@ class TaskAwareRunner:
             policy.action_playback_target_steps = runtime[
                 "action_playback_target_steps"
             ]
+        runtime_args = runtime.get("runtime_args") or {}
+        if getattr(policy, "robot_type", None) == "ur5":
+            if hasattr(policy, "ur5_anchor_pitch_zero"):
+                policy.ur5_anchor_pitch_zero = to_bool(
+                    runtime_args.get("ur5_anchor_pitch_zero"), False
+                )
+            if hasattr(policy, "ur5_anchor_roll_pitch_zero"):
+                roll_pitch_zero = runtime_args.get("ur5_anchor_roll_pi_pitch_zero")
+                if roll_pitch_zero is None:
+                    roll_pitch_zero = runtime_args.get("ur5_anchor_roll_pitch_zero")
+                policy.ur5_anchor_roll_pitch_zero = to_bool(roll_pitch_zero, False)
+            if hasattr(policy, "ur5_gripper_robotiq_to_width"):
+                policy.ur5_gripper_robotiq_to_width = to_bool(
+                    runtime_args.get("ur5_gripper_robotiq_to_width"), False
+                )
+            if hasattr(policy, "ur5_gripper_robotiq_mapping"):
+                mapping = runtime_args.get("ur5_gripper_robotiq_mapping") or "reverse"
+                policy.ur5_gripper_robotiq_mapping = str(mapping).strip().lower()
         # Keep logical-step history hop locked to the slot grid. Prefer explicit
         # history_action_step_increment, then playback. Do not fall through to
         # action_horizon when logical-step history is already configured.
         if hasattr(policy, "sync_history_action_step_increment"):
-            history_step = runtime["runtime_args"].get("history_action_step_increment")
+            history_step = runtime_args.get("history_action_step_increment")
             playback = int(runtime.get("action_playback_target_steps") or 0)
             horizon = int(runtime.get("action_horizon") or 0)
             use_logical = bool(getattr(policy, "use_logical_step_history", False))
@@ -318,7 +344,7 @@ class TaskAwareRunner:
             if hop > 0:
                 policy.sync_history_action_step_increment(hop)
         elif hasattr(policy, "history_action_step_increment"):
-            history_step = runtime["runtime_args"].get("history_action_step_increment")
+            history_step = runtime_args.get("history_action_step_increment")
             policy.history_action_step_increment = int(
                 history_step
                 or runtime["action_playback_target_steps"]
@@ -380,37 +406,19 @@ class TaskAwareRunner:
 
 @hydra.main(version_base=None, config_path="configs", config_name="default")
 def main(cfg: DictConfig):
-    task_name = cfg.get("task_name")
-    if task_name:
-        metadata = get_task_metadata(task_name)
-        prompt = metadata["prompt"]
-        robot_type = metadata["robot_type"]
-        run_label = task_name
-    else:
-        robot_type = cfg.get("robot_type")
-        if not robot_type:
-            raise ValueError("Either task_name or robot_type is required")
-        robot_type = str(robot_type).lower()
-        prompt = ""
-        run_label = f"{robot_type}_generalist"
+    robot_type = cfg.get("robot_type")
+    if not robot_type:
+        raise ValueError("robot_type is required; use --config-name generalist/<robot>")
+    robot_type = str(robot_type).lower()
 
     # Setup log directory (from config or default)
     log_base_dir = cfg.get("log_dir", "./logs")
-    if task_name:
-        runtime = build_effective_runtime(cfg, robot_type, task_name, prompt, run_label)
-        runtime["run_id"] = str(cfg.get("run_id", "") or "").strip()
-        runner = create_runner_from_runtime(runtime, cfg.image_size, log_base_dir)
-        image_type = runtime["image_type"]
-        action_type = runtime["action_type"]
-        duration = runtime["duration"]
-        resize_name = runtime["resize_name"]
-    else:
-        runner = TaskAwareRunner(cfg, robot_type, cfg.image_size, log_base_dir)
-        default_runtime = runner.default_runtime
-        image_type = default_runtime["image_type"]
-        action_type = default_runtime["action_type"]
-        duration = default_runtime["duration"]
-        resize_name = default_runtime["resize_name"]
+    runner = TaskAwareRunner(cfg, robot_type, cfg.image_size, log_base_dir)
+    default_runtime = runner.default_runtime
+    image_type = default_runtime["image_type"]
+    action_type = default_runtime["action_type"]
+    duration = default_runtime["duration"]
+    resize_name = default_runtime["resize_name"]
 
     # Online mode
     logger.info("Starting Online mode...")
@@ -434,7 +442,7 @@ def main(cfg: DictConfig):
         duration,
         resize_name=resize_name,
         target_robot_type=robot_type,
-        target_task_name=task_name,
+        target_task_name=None,
         target_run_id=run_id,
     )
 

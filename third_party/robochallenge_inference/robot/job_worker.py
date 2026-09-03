@@ -1,7 +1,7 @@
 import logging
 import time
 
-from utils.enums import ReturnCode
+from robot.interface_client import ReturnCode
 
 
 def process_job(

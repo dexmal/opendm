@@ -1,7 +1,6 @@
 # @package _global_
 # Default configuration
 # generalist configs set robot_type; platform runs provide task_name/prompt.
-task_name: null
 robot_type: null
 checkpoint: ???
 action_type: null

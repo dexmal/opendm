@@ -1,31 +1,103 @@
+import functools
+import logging
 import pickle
+import threading
 import time
 import uuid
+from enum import Enum
 
 import numpy as np
 import requests
-from utils.enums import ReturnCode
-from utils.log import setup_logger
-from utils.util import retry_request, timeout
-
-logger = setup_logger()
 
 base_url = "http://api.robochallenge.cn"
-mock_url = "http://127.0.0.1:9098"
 
 MAX_RETRY = 3
 RETRY_DELAY = 1
+MAX_ACTION_POST_ATTEMPTS = 5
+
+
+class ReturnCode(int, Enum):
+    SUCCESS = 0
+    FAILURE = 1
+    TIMEOUT = 2
+    EXCEPTION = 3
+
+
+def setup_logger(name=None, level=logging.INFO):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    return logger
+
+
+def timeout(seconds):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = [
+                Exception(
+                    f"Function '{func.__name__}' timed out after {seconds} seconds."
+                )
+            ]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    result[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.daemon = True
+            thread.start()
+            thread.join(seconds)
+            if thread.is_alive():
+                print(f"Function '{func.__name__}' timed out after {seconds} seconds.")
+                return ReturnCode.TIMEOUT
+            if isinstance(result[0], Exception):
+                print("res", result[0])
+                return ReturnCode.EXCEPTION
+
+            return result[0]
+
+        return wrapper
+
+    return decorator
+
+
+def retry_request(retries=3, delay=1):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.RequestException as e:
+                    last_exception = e
+                    if attempt < retries - 1:
+                        time.sleep(delay)
+            raise last_exception
+
+        return wrapper
+
+    return decorator
+
+
+logger = setup_logger()
 
 
 class InterfaceClient:
-    def __init__(self, user_id, mock=False):
+    def __init__(self, user_id):
         self.user_id = user_id
         self.session = requests.Session()
         self.job_id = None
         self.robot_id = None
         self.robot_url = None
         self.clock_offset = None
-        self.mock = mock
 
     def _get(self, url, **kwargs):
         @retry_request(retries=MAX_RETRY, delay=RETRY_DELAY)
@@ -41,13 +113,6 @@ class InterfaceClient:
 
         return inner()
 
-    def _put(self, url, **kwargs):
-        @retry_request(retries=MAX_RETRY, delay=RETRY_DELAY)
-        def inner():
-            return self.session.put(url, **kwargs)
-
-        return inner()
-
     @staticmethod
     def _print_response_error(prefix: str, error: requests.exceptions.RequestException):
         response = getattr(error, "response", None)
@@ -60,17 +125,8 @@ class InterfaceClient:
         self.job_id = job_id
         self.robot_id = robot_id
         self.robot_url = base_url + f"/robots/{robot_id}/direct"
-        if self.mock:
-            self.robot_url = mock_url + "/"
         self.clock_offset = self.cal_clockoffset()
         print(f"clock jitter:{self.clock_offset}s")
-
-    def reset_job_info(self):
-        self.job_id = None
-        self.robot_id = None
-        self.robot_url = None
-        self.clock_offset = None
-        self.mock = False
 
     def cal_clockoffset(self):
         offsets = []
@@ -120,19 +176,8 @@ class InterfaceClient:
             self._print_response_error(f"Error getting state: {e}", e)
             return None
 
-    def start_motion(self):
-        url = f"{self.robot_url}/start_motion"
-        response = self._get(url)
-        return response
-
-    def end_motion(self):
-        url = f"{self.robot_url}/stop_motion"
-        response = self._get(url)
-        return response
-
     def post_actions(self, actions, duration, action_type):
-        i = 0
-        while i < 5:
+        for attempt in range(1, MAX_ACTION_POST_ATTEMPTS + 1):
             try:
                 req_hash = f"gpu-server-{uuid.uuid4()}"
                 url = f"{self.robot_url}/action?hash={req_hash}"
@@ -145,16 +190,24 @@ class InterfaceClient:
                 )
 
                 response.raise_for_status()
-                if response.json().get("result") == "success":
-                    break
-                else:
-                    print(
-                        f"Robot failed to process actions: {response.json().get('message')}"
-                    )
-                    print(f"Robot action response body: {response.text}")
+                body = response.json()
+                if body.get("result") == "success":
+                    return
+
+                print(
+                    "Robot failed to process actions "
+                    f"(attempt {attempt}/{MAX_ACTION_POST_ATTEMPTS}): "
+                    f"{body.get('message')}"
+                )
+                print(f"Robot action response body: {response.text}")
             except requests.exceptions.RequestException as e:
-                i += 1
-                self._print_response_error(f"Error posting actions: {e}", e)
+                self._print_response_error(
+                    f"Error posting actions "
+                    f"(attempt {attempt}/{MAX_ACTION_POST_ATTEMPTS}): {e}",
+                    e,
+                )
+
+        print(f"Failed to post actions after {MAX_ACTION_POST_ATTEMPTS} attempts.")
 
     def start_robot(self, job_id):
         url = f"{base_url}/jobs/update"
@@ -170,14 +223,6 @@ class InterfaceClient:
             f"{base_url}/jobs/{job_id}", headers={"x-user-id": self.user_id}
         )
         return response.json()
-
-    def wait_for_robot_ready(self, job_id, poll_interval=2):
-        while True:
-            res = self._get_job_status(job_id)
-            if "device" in res and "robot_id" in res:
-                robot_id = res["device"]["robot_id"]
-                return robot_id, job_id
-            time.sleep(poll_interval)
 
     @timeout(600)
     def wait_for_robot_running(self, job_id, poll_interval=2):

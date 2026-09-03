@@ -914,8 +914,9 @@ class OpenDMPolicy:
         elif self.robot_type in ("arx5", "ur5"):
             actions = actions.copy()
             gripper_idx = actions.shape[-1] - 1
+            gripper_zero_threshold = 0.05 if self.robot_type == "ur5" else 0.01
             actions[:, gripper_idx] = np.where(
-                actions[:, gripper_idx] < 0.01,
+                actions[:, gripper_idx] < gripper_zero_threshold,
                 0.0,
                 actions[:, gripper_idx],
             )
