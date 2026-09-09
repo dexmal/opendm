@@ -49,6 +49,7 @@ from opendm.model.dm05.dm05_utils import (
     linear_fp32,
     make_suffix_attn_mask,
     mask_history_pad_tokens_in_attention,
+    masked_flow_matching_loss,
     patch_decoder_layers,
     posemb_sincos,
     validate_action_config_compatible,
@@ -841,6 +842,10 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         batch_size = input_ids.shape[0]
         if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
             action = action.to(dtype=MODEL_DTYPE)
+        if action_mask is None:
+            action_mask = torch.ones_like(action)
+        else:
+            action_mask = action_mask.to(device=action.device)
 
         # Step 1: prefix forward — history via unused0 scatter, current views via VLM.
         kv_cache, prefix_hidden_states = self._compute_prefix_cache(
@@ -908,10 +913,10 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
         v_t = self._action_output_proj(suffix_out)
         u_t = u_t.to(dtype=v_t.dtype)
 
-        elem_mse = F.mse_loss(v_t, u_t, reduction="none")  # [B, T, D]
-
-        per_sample_fm = (elem_mse * action_mask).sum(dim=(1, 2)) / action_mask.sum(
-            dim=(1, 2)
+        per_sample_fm = masked_flow_matching_loss(
+            prediction=v_t,
+            target=u_t,
+            action_mask=action_mask,
         )
         fm_loss = per_sample_fm.mean()
         loss = fm_loss

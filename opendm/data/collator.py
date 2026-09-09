@@ -94,6 +94,49 @@ class TrainingCollator:
 
 
 class NormStatsCollator:
+    @staticmethod
+    def _valid_action_values(
+        action_values: list[np.ndarray],
+        action_masks: list[np.ndarray] | None,
+    ) -> np.ndarray:
+        """Flatten action chunks while dropping episode-padding timesteps.
+
+        ``BuildActionChunk`` repeats the final frame to keep every sample
+        rectangular.  Those repeated values are useful for inference shape
+        stability but must not skew normalization statistics.  Action masks
+        are expected to be timestep masks (all action dimensions share the
+        same validity); dimension-specific masks are rejected here because a
+        single ``RunningStats`` update cannot represent different sample
+        counts per dimension safely.
+        """
+        actions = np.concatenate(action_values, axis=0)
+        if action_masks is None:
+            return actions
+
+        masks = np.concatenate(action_masks, axis=0).astype(bool, copy=False)
+        if masks.shape != actions.shape:
+            raise ValueError(
+                "action_mask must have the same shape as action when computing "
+                f"norm stats; got {masks.shape} and {actions.shape}"
+            )
+        if masks.ndim < 2:
+            raise ValueError("action_mask must include a final action dimension")
+
+        # A mask produced by BuildActionChunk is shared across dimensions.  A
+        # caller supplying a per-dimension mask would require per-dimension
+        # statistics, so fail loudly instead of counting padded values unevenly.
+        if masks.shape[-1] > 1 and not np.all(masks == masks[..., :1]):
+            raise ValueError(
+                "action_mask must be uniform across action dimensions when "
+                "computing norm stats"
+            )
+
+        flat_actions = actions.reshape(-1, actions.shape[-1])
+        flat_valid = masks[..., 0].reshape(-1)
+        if not np.any(flat_valid):
+            raise ValueError("action_mask contains no valid action timesteps")
+        return flat_actions[flat_valid]
+
     def __call__(self, instances: Sequence[dict]) -> dict:
         grouped_instances: dict[str | None, list[dict]] = {}
         for instance in instances:
@@ -122,11 +165,25 @@ class NormStatsCollator:
                 if not any(presence):
                     continue
                 values = [instance[key] for instance in robot_instances]
-                robot_batch[key] = (
-                    np.stack(values, axis=0)
-                    if key == "state"
-                    else np.concatenate(values, axis=0)
-                )
+                if key == "state":
+                    robot_batch[key] = np.stack(values, axis=0)
+                else:
+                    mask_presence = [
+                        "action_mask" in instance
+                        and instance["action_mask"] is not None
+                        for instance in robot_instances
+                    ]
+                    if any(mask_presence) and not all(mask_presence):
+                        raise ValueError(
+                            "Inconsistent 'action_mask' presence for robot_type "
+                            f"{robot_type!r}"
+                        )
+                    action_masks = (
+                        [instance["action_mask"] for instance in robot_instances]
+                        if any(mask_presence)
+                        else None
+                    )
+                    robot_batch[key] = self._valid_action_values(values, action_masks)
             if "action" not in robot_batch:
                 raise ValueError(
                     f"Cannot compute norm stats without action for robot_type "
