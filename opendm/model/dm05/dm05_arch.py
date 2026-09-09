@@ -1522,6 +1522,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
     def _build_adarms_cond(
         self,
         time: torch.Tensor,
+        dtype: torch.dtype | None = None,
     ) -> torch.Tensor:
         ae_hidden = self.model.action_in_proj.out_features
         if self.precision_policy == FP32_MIXED_PRECISION_POLICY:
@@ -1531,7 +1532,7 @@ class DM05ForConditionalGeneration(DMPreTrainedModel):
             cond = linear_fp32(cond, self.model.time_mlp_out)
             return F.silu(cond)
 
-        dtype = self.model.time_mlp_in.weight.dtype
+        dtype = self.model.time_mlp_in.weight.dtype if dtype is None else dtype
         time_emb = posemb_sincos(time, ae_hidden, max_period=4.0).to(dtype)
         cond = self.model.time_mlp_in(time_emb)
         cond = F.silu(cond)
