@@ -56,7 +56,7 @@ Checkpoint、playground 入口、`chunk_size`、image keys、state/action 维度
 | 基础预训练模型 | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
-| DM05-MEM | `playground/dm05_mem.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
+| DM05-MEM | `playground/dm05_mem_sft_demo.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
 | Demo 或自定义 SFT | `playground/dm05_sft_demo.py` 或自定义入口 | SFT checkpoint | 训练值 | 训练值 | 训练值 |
 | LIBERO LoRA | `playground/dm05_libero_lora.py` | LIBERO LoRA step checkpoint | 10 | 2 | 7 |
 
@@ -155,6 +155,8 @@ RoboTwin 2.0 入口使用三张图片、14 维 state/action 和 `Aloha RoboTwin2
 
 ### DM05-MEM
 
+`playground/dm05_mem_sft_demo.py` 是 DM05-MEM 的训练和推理入口。完整训练流程参考 [DM05-MEM SFT 与验证指南](dm05_mem_sft.md)。
+
 下载发布的 checkpoint：
 
 ```bash
@@ -166,7 +168,7 @@ hf download Dexmal/DM05-MEM \
 
 ```bash
 script/dm05_launcher.sh \
-  --exp playground/dm05_mem.py \
+  --exp playground/dm05_mem_sft_demo.py \
   --task inference \
   --model-config.model-name-or-path ./checkpoints/DM05-MEM \
   --inference-config.port 7891
@@ -174,7 +176,9 @@ script/dm05_launcher.sh \
 
 DM05-MEM 入口使用三张图片、14 维 state/action 和 `DOS W1`
 robot type。默认 `observation.control_mode` 为 `joint`；需要末端位姿控制时传
-`eef`。历史帧默认 32；FastInfer 需要匹配的 35 图 TensorRT engine。
+`eef`。默认 `speed` 为 `"0.1"`。历史帧默认 32；FastInfer 需要匹配的 35 图 TensorRT engine。
+验证本入口刚训出的 checkpoint 时，将 `model-name-or-path` 换成对应 step 目录，并用带
+`history_images` 的请求；完整例子见 [DM05-MEM SFT 与验证指南](dm05_mem_sft.md) 第 6 节。
 
 ### Demo 或自定义 SFT
 
@@ -259,8 +263,9 @@ python -m opendm.infer.build_vision_trt \
 ```
 
 `--num-images` 默认等于 `--inference-config.image-prompts` 的数量。若启动时加了
-`--data-config.is-history`，则为 `len(image_prompts) + 5`（最多 5 个 history 槽位）。
-例如三路当前图 + history 应使用 `--num-images 8`。
+`--data-config.is-history`，则为 `len(image_prompts) + max_history_images`。父类
+默认 5 个 history 槽（三路当前图：`--num-images 8`）。MEM demo playground 为 32
+槽（`--num-images 35`）；RoboDojo `cover_blocks` 为 20（`--num-images 23`）。
 
 ### Fast Backend 约束
 
@@ -268,12 +273,14 @@ python -m opendm.infer.build_vision_trt \
   比 default backend 明显更慢。
 - 请求使用 batch size 1，服务串行处理请求。
 - `diffusion_steps` 在服务启动并 capture profiles 后固定。
-- 预处理后的 multimodal prefix 最长为 1024 tokens。
-- 默认 prefix buckets 为 `576 704 768 896 1024`；无法容纳当前图片数量的过小默认值
-  会被自动跳过。
-- 自定义 bucket 列表必须非空、严格递增，并且不能超过 1024。
+- 预处理后的 multimodal prefix 上限由 `--inference-config.fast-prefix-len` 决定（父类
+  默认 `1024`）。MEM demo 和 RoboDojo `cover_blocks` 设为 `2048`。
+- 父类默认 prefix buckets 为 `576 704 768 896 1024`；无法容纳当前图片数量的过小默认值
+  会被自动跳过。MEM demo 和 `cover_blocks` 使用单个 bucket `2048`。Default backend
+  不使用 prefix buckets。
+- 自定义 bucket 列表必须非空、严格递增，并且不能超过 `fast_prefix_len`。
 - Bucket 越多，服务启动时间和显存占用越高。
-- 请求超过最大自定义 bucket、但仍不超过 1024 时，会使用更慢的 eager fallback。
+- 请求超过最大自定义 bucket、但仍不超过 `fast_prefix_len` 时，会使用更慢的 eager fallback。
 
 只有 workload 需要不同 prefix shape 时才覆盖默认值：
 
@@ -319,11 +326,11 @@ EOF
 - `observation.images`：必填 JSON 对象，值为 base64 编码图片。键名必须是连续的 1-based
   字符串（`"1"`、`"2"`、…），并与 `--inference-config.image-prompts` **按顺序一一对应**：
   例如 `"1"` → 第 1 个 prompt（如 `Head`），`"2"` → 第 2 个（如 `Left wrist`）。
-- `observation.history_images`：可选的 base64 历史帧 JSON 数组，**从旧到新**，默认最多 5 帧。
-  Default backend 可通过 `--inference-config.max-history-images 32` 放宽到 32 帧；此时同时设置
-  `--trainer-config.model-max-length 2048`。Fast backend 当前仍最多支持 5 帧。仅当服务启动时加了
-  `--data-config.is-history` 才可使用；无历史时省略或传 `[]`。完整请求见
-  [`tests/curl_history.sh`](../../tests/curl_history.sh)。
+- `observation.history_images`：可选的 base64 历史帧 JSON 数组，**从旧到新**。父类默认上限 5 帧。
+  Default 与 Fast 都遵循 `--inference-config.max-history-images`：MEM demo 为 `32`（同时设置
+  `--trainer-config.model-max-length 2048` 和 `fast_prefix_len=2048`）；RoboDojo
+  `cover_blocks` 为 `20`。仅当服务启动时加了 `--data-config.is-history` 才可使用；无历史时
+  省略或传 `[]`。完整请求见 [`tests/curl_history.sh`](../../tests/curl_history.sh)。
 - `observation.robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会
   继承数据集默认值，例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值
   精确选择 profile，例如 `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
@@ -379,9 +386,9 @@ Legacy 请求字段：
 - `text`：任务指令，默认是空字符串。
 - `states`：必填的一维 JSON array，长度和顺序必须与 checkpoint 的归一化统计一致。
 - `image`：可重复的图片字段，数量和顺序必须与 `image_prompts` 一致（如 Head、Left wrist、Right wrist）。
-- `history_images`：可选的历史帧（重复 multipart 字段，从旧到新），默认最多 5 帧。
-  Default backend 可配置到 32 帧，Fast backend 当前仍最多支持 5 帧。仅当服务启动时加了
-  `--data-config.is-history` 才可使用。
+- `history_images`：可选的历史帧（重复 multipart 字段，从旧到新）。父类默认上限 5 帧；
+  两个 backend 都遵循 `--inference-config.max-history-images`（MEM demo `32`，
+  `cover_blocks` `20`）。仅当服务启动时加了 `--data-config.is-history` 才可使用。
 - `robot_type`：用于说明 state/action 语义的可选机器人类型。Benchmark 入口会继承数据集默认值，
   例如 `Franka` 和 `Aloha RoboTwin2`。多机型 checkpoint 会按字段值精确选择 profile，例如
   `Aloha` 或 `DOS W1`；自定义 relative-action 入口可能要求显式传入。
@@ -412,12 +419,13 @@ Legacy 成功响应保持历史格式：
 | `--inference-config.diffusion-steps` | Action diffusion steps，默认值为 `10`。 |
 | `--inference-config.output-action-dim` | 返回的 action 维度，必须与归一化统计一致。 |
 | `--inference-config.image-prompts` | 有序相机标签，与 `observation.images` 的 `"1"`、`"2"`、… 一一对应。 |
-| `--inference-config.max-history-images` | Default backend 的历史帧请求上限，默认 `5`；32 帧场景设为 `32`。Fast backend 当前上限仍为 `5`。 |
+| `--inference-config.max-history-images` | 两个 backend 的历史帧请求上限。父类默认 `5`；MEM demo `32`；RoboDojo `cover_blocks` `20`。 |
+| `--inference-config.fast-prefix-len` | Fast backend 的 prefix token 容量。父类默认 `1024`；MEM demo 和 `cover_blocks` 为 `2048`。 |
 | `--data-config.is-history` | 开启后才接受 `history_images`；普通 `curl_demo.sh` 不需要。 |
 | `--inference-config.backend` | `default` 或 `fast`。 |
 | `--inference-config.vision-trt-engine-path` | 当前 checkpoint 专用的 TensorRT vision engine 路径；默认值为 `checkpoints/trt_engines/dm05_vision.engine`。 |
 | `--inference-config.force-rebuild` | Fast 推理前重新构建 vision engine。 |
-| `--inference-config.prefix-seq-len-buckets` | 可选的非空 fast-backend 自定义 buckets。 |
+| `--inference-config.prefix-seq-len-buckets` | 可选的非空 fast-backend 自定义 buckets，每个值必须 `<= fast_prefix_len`。 |
 | `--inference-config.port` | HTTP 服务端口，默认值为 `7891`。 |
 
 ## 7. 常见问题
@@ -428,10 +436,10 @@ Legacy 成功响应保持历史格式：
 | State 或 action 维度错误 | 让 `observation.state` 和 `output_action_dim` 与归一化向量维度一致。 |
 | 上传图片数量错误 | 让 `observation.images` 的数量和顺序与 `image_prompts` 一致。 |
 | Fast 启动阶段出现 import 错误 | 在当前环境重新执行 `pip install -e ".[fast-infer]"`，并检查 `import tensorrt`、`import triton`、`import torch.nn.attention.flex_attention` 是否成功。 |
-| TensorRT 图片数量不匹配 | 用与 `image_prompts` 数量相同的 `--num-images` 重建；开启 history 时用 `len(image_prompts) + 5`。 |
+| TensorRT 图片数量不匹配 | 用与 `image_prompts` 数量相同的 `--num-images` 重建；开启 history 时用 `len(image_prompts) + max_history_images`。 |
 | 更换 checkpoint 后复用同一 engine 导致结果异常 | 使用 checkpoint 专用 engine 路径，或者传 `--inference-config.force-rebuild`。 |
-| Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 1024。 |
-| Fast prefix 超过 1024 tokens | 缩短 instruction 或降低 `model_max_length`；32 帧 history 请使用 Default backend 并将 `model_max_length` 设为 2048。 |
+| Prefix buckets 为空、乱序或过大 | 传入非空递增列表，且所有值不超过 `fast_prefix_len`。 |
+| Fast prefix 超过 `fast_prefix_len` | 缩短 instruction，或提高 `--inference-config.fast-prefix-len` 及对应 buckets（MEM / `cover_blocks`：`2048`）。 |
 | Default backend 偶尔有单次请求较慢 | 新执行 profile 第一次走 eager，第二次出现时 capture；后续匹配请求会复用 Graph。 |
 | Fast 服务长时间未就绪 | 等待 engine 准备和所有 CUDA Graph profiles 在启动阶段完成 capture。 |
 
@@ -439,5 +447,7 @@ Legacy 成功响应保持历史格式：
 
 - [DM05 LIBERO 训练与评测](dm05_libero.md)
 - [DM05 RoboTwin 2.0 训练与评测](dm05_robotwin2.md)
+- [DM05 RoboDojo-Sim 训练与评测](dm05_robodojo.md)
 - [DM05 SFT 与验证](dm05_finetuning.md)
+- [DM05-MEM SFT 与验证](dm05_mem_sft.md)
 - [DM05 LIBERO LoRA 训练](dm05_libero_lora_training.md)

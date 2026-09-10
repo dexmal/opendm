@@ -63,7 +63,7 @@ Before the first fast launch, confirm:
 | Base pretrained model | `opendm/exp/dm05_exp.py` | `Dexmal/DM05` | 50 | 3 | 14 |
 | LIBERO | `playground/dm05_libero.py` | `Dexmal/DM05-libero` | 10 | 2 | 7 |
 | RoboTwin 2.0 | `playground/dm05_robotwin2.py` | `Dexmal/DM05-robotwin2` | 50 | 3 | 14 |
-| DM05-MEM | `playground/dm05_mem.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
+| DM05-MEM | `playground/dm05_mem_sft_demo.py` | `Dexmal/DM05-MEM` | 50 | 3 | 14 |
 | Demo or custom SFT | `playground/dm05_sft_demo.py` or your own entry | Your SFT checkpoint | Training value | Training value | Training value |
 | LIBERO LoRA | `playground/dm05_libero_lora.py` | A LIBERO LoRA step checkpoint | 10 | 2 | 7 |
 
@@ -170,6 +170,10 @@ and the `Aloha RoboTwin2` robot type.
 
 ### DM05-MEM
 
+`playground/dm05_mem_sft_demo.py` is the DM05-MEM training and inference entry.
+See the [DM05-MEM SFT and Validation Guide](dm05_mem_sft.md) for the full
+training flow.
+
 Download the released checkpoint:
 
 ```bash
@@ -181,7 +185,7 @@ Start the service:
 
 ```bash
 script/dm05_launcher.sh \
-  --exp playground/dm05_mem.py \
+  --exp playground/dm05_mem_sft_demo.py \
   --task inference \
   --model-config.model-name-or-path ./checkpoints/DM05-MEM \
   --inference-config.port 7891
@@ -189,9 +193,12 @@ script/dm05_launcher.sh \
 
 The DM05-MEM entry point uses three images, a 14-dimensional
 state/action, and the `DOS W1` robot type. `observation.control_mode`
-defaults to `joint`; set it to `eef` for end-effector control. History
-defaults to 32 frames on both backends; FastInfer needs a matching 35-image
-TensorRT engine.
+defaults to `joint`; set it to `eef` for end-effector control. `speed`
+defaults to `"0.1"`. History defaults to 32 frames on both backends;
+FastInfer needs a matching 35-image TensorRT engine. To validate a
+checkpoint this entry just trained, point `model-name-or-path` at that
+step directory and send a request with `history_images`; see section 6 of
+the [DM05-MEM SFT and Validation Guide](dm05_mem_sft.md).
 
 ### Demo or Custom SFT
 
@@ -280,8 +287,10 @@ python -m opendm.infer.build_vision_trt \
 ```
 
 `--num-images` defaults to the number of `--inference-config.image-prompts`.
-With `--data-config.is-history`, use `len(image_prompts) + 5` (up to 5 history
-slots). For three current views plus history, use `--num-images 8`.
+With `--data-config.is-history`, use
+`len(image_prompts) + max_history_images`. The parent default is 5 history
+slots (three current views: `--num-images 8`). The MEM demo playground uses 32
+slots (`--num-images 35`); RoboDojo `cover_blocks` uses 20 (`--num-images 23`).
 
 ### Fast Backend Constraints
 
@@ -289,14 +298,18 @@ slots). For three current views plus history, use `--num-images 8`.
   capture; the first launch is expected to take longer than the default backend.
 - Requests use batch size 1 and are processed serially by the service.
 - `diffusion_steps` is fixed when the service captures its profiles at startup.
-- The processed multimodal prefix is limited to 1024 tokens.
-- The default prefix buckets are `576 704 768 896 1024`. Defaults too small for
-  the configured image count are skipped automatically.
+- The processed multimodal prefix is limited by
+  `--inference-config.fast-prefix-len` (parent default `1024`). MEM demo and
+  RoboDojo `cover_blocks` set this to `2048`.
+- The parent default prefix buckets are `576 704 768 896 1024`. Defaults too
+  small for the configured image count are skipped automatically. MEM demo and
+  `cover_blocks` use a single bucket `2048`. The default backend does not use
+  prefix buckets.
 - A custom bucket list must be non-empty, strictly increasing, and no larger
-  than 1024.
+  than `fast_prefix_len`.
 - More buckets increase service startup time and GPU memory use.
 - A request longer than the largest custom bucket uses a slower eager fallback,
-  provided it is still within the 1024-token limit.
+  provided it is still within `fast_prefix_len`.
 
 Override the defaults only when the workload requires different prefix shapes:
 
@@ -347,10 +360,10 @@ Request fields:
   to `--inference-config.image-prompts` (e.g. `"1"` → first prompt such as
   `Head`, `"2"` → second such as `Left wrist`).
 - `observation.history_images`: optional JSON array of base64 history frames,
-  **oldest to newest**, with 5 frames allowed by default. The Default backend can
-  accept up to 32 with `--inference-config.max-history-images 32`; also set
-  `--trainer-config.model-max-length 2048`. The Fast backend currently remains
-  limited to 5. Only valid when the service was started with
+  **oldest to newest**. The parent default cap is 5. Both Default and Fast honor
+  `--inference-config.max-history-images`: MEM demo uses `32` (also set
+  `--trainer-config.model-max-length 2048` and `fast_prefix_len=2048`); RoboDojo
+  `cover_blocks` uses `20`. Only valid when the service was started with
   `--data-config.is-history`; omit or use `[]` when there is no history. See
   [`tests/curl_history.sh`](../../tests/curl_history.sh) for a full request.
 - `observation.robot_type`: optional robot embodiment used for state/action
@@ -415,10 +428,10 @@ Legacy request fields:
   match the checkpoint's normalization statistics.
 - `image`: repeated image file field. The count and order must match
   `image_prompts` (e.g. Head, Left wrist, Right wrist).
-- `history_images`: optional repeated history frames (oldest to newest), with 5
-  frames allowed by default. The Default backend can be configured for 32,
-  while the Fast backend currently remains limited to 5. Only valid when the
-  service was started with `--data-config.is-history`.
+- `history_images`: optional repeated history frames (oldest to newest). The
+  parent default cap is 5; both backends follow
+  `--inference-config.max-history-images` (MEM demo `32`, `cover_blocks` `20`).
+  Only valid when the service was started with `--data-config.is-history`.
 - `robot_type`: optional robot embodiment used for state/action semantics.
   Benchmark entry points inherit dataset defaults such as `Franka` and `Aloha
   RoboTwin2`. Multi-robot checkpoints select profiles by the exact value, for
@@ -452,12 +465,13 @@ A successful legacy response returns the historical shape:
 | `--inference-config.diffusion-steps` | Number of action diffusion steps; default `10`. |
 | `--inference-config.output-action-dim` | Returned action dimension; must match normalization statistics. |
 | `--inference-config.image-prompts` | Ordered camera labels, one-to-one with `observation.images` keys `"1"`, `"2"`, …. |
-| `--inference-config.max-history-images` | Default-backend history request limit. Defaults to `5`; use `32` for 32-frame workloads. The Fast backend remains limited to `5`. |
+| `--inference-config.max-history-images` | History request cap for both backends. Parent default `5`; MEM demo `32`; RoboDojo `cover_blocks` `20`. |
+| `--inference-config.fast-prefix-len` | Fast backend prefix token capacity. Parent default `1024`; MEM demo and `cover_blocks` use `2048`. |
 | `--data-config.is-history` | Required to accept `history_images`; plain `curl_demo.sh` does not need it. |
 | `--inference-config.backend` | `default` or `fast`. |
 | `--inference-config.vision-trt-engine-path` | Checkpoint-specific TensorRT vision engine path; default `checkpoints/trt_engines/dm05_vision.engine`. |
 | `--inference-config.force-rebuild` | Rebuild the vision engine before fast inference. |
-| `--inference-config.prefix-seq-len-buckets` | Optional non-empty custom fast-backend buckets. |
+| `--inference-config.prefix-seq-len-buckets` | Optional non-empty custom fast-backend buckets; each value must be `<= fast_prefix_len`. |
 | `--inference-config.port` | HTTP service port; default `7891`. |
 
 ## 7. Troubleshooting
@@ -468,10 +482,10 @@ A successful legacy response returns the historical shape:
 | State or action dimension error | Match `observation.state` and `output_action_dim` to the normalization vectors. |
 | Wrong number of uploaded images | Make `observation.images` use the same count and order as `image_prompts`. |
 | Fast backend fails during startup with import errors | In the active environment, reinstall `pip install -e ".[fast-infer]"` and verify `import tensorrt`, `import triton`, and `import torch.nn.attention.flex_attention`. |
-| TensorRT image-count mismatch | Rebuild with `--num-images` equal to `len(image_prompts)`; with history use `len(image_prompts) + 5`. |
+| TensorRT image-count mismatch | Rebuild with `--num-images` equal to `len(image_prompts)`; with history use `len(image_prompts) + max_history_images`. |
 | Results change after switching checkpoints with the same engine | Use a checkpoint-specific engine path or pass `--inference-config.force-rebuild`. |
-| Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most 1024. |
-| Fast prefix exceeds 1024 tokens | Shorten the instruction or reduce `model_max_length`; for 32-frame history use the Default backend with `model_max_length` set to 2048. |
+| Empty, unsorted, or oversized prefix buckets | Pass a non-empty increasing list whose values are at most `fast_prefix_len`. |
+| Fast prefix exceeds `fast_prefix_len` | Shorten the instruction, or raise `--inference-config.fast-prefix-len` and matching buckets (MEM / `cover_blocks`: `2048`). |
 | An occasional default-backend request is slower | A new execution profile runs eagerly once and captures on its second occurrence; later matching requests reuse the Graph. |
 | Fast service takes time to become ready | Wait for engine preparation and all configured CUDA Graph profiles to finish at startup. |
 
@@ -479,5 +493,7 @@ A successful legacy response returns the historical shape:
 
 - [DM05 LIBERO Training and Evaluation](dm05_libero.md)
 - [DM05 RoboTwin 2.0 Training and Evaluation](dm05_robotwin2.md)
+- [DM05 RoboDojo-Sim Training and Evaluation](dm05_robodojo.md)
 - [DM05 SFT and Validation](dm05_finetuning.md)
+- [DM05-MEM SFT and Validation](dm05_mem_sft.md)
 - [DM05 LIBERO LoRA Training](dm05_libero_lora_training.md)

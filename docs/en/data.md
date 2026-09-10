@@ -6,13 +6,14 @@ to register a dataset for use with `--data-config.dataset-name`.
 
 ## 1. Using Provided Data
 
-OpenDM includes registrations for two commonly used datasets. The paths below
+OpenDM includes registrations for commonly used datasets. The paths below
 are relative to the OpenDM repository root.
 
 | Dataset | Download | Registered name | Registered `jsonl_dir` | Registered `image_dir` |
 | --- | --- | --- | --- | --- |
 | LIBERO | [Dexmal/libero](https://huggingface.co/datasets/Dexmal/libero) | `libero_pi0_all` | `./data/libero/libero_pi0_all` | `./data/libero/libero_pi0_all/image` |
 | RoboTwin 2.0 | [Dexmal/robotwin2-full](https://huggingface.co/datasets/Dexmal/robotwin2-full) | `robotwin2_generalist` | `./data/robotwin2.0` | `./data/robotwin2.0/video` |
+| RoboDojo-Sim | [Dexmal/robodojo-sim](https://huggingface.co/datasets/Dexmal/robodojo-sim) | `robodojo_sim_cover_blocks` | `./data/robodojo_sim/jsonl/cover_blocks` | `./data/robodojo_sim/video` |
 
 For LIBERO, download and organize the provided data from the repository root:
 
@@ -21,13 +22,16 @@ script/libero_runner.sh dataset
 ```
 
 The LIBERO episode files are stored below the `jsonl/` subdirectory of its
-registered `jsonl_dir`. RoboTwin 2.0 also stores episode files below `jsonl/`.
-Follow the [RoboTwin 2.0 guide](dm05_robotwin2.md) to download and extract its
-archive. See the [LIBERO guide](dm05_libero.md) for the full LIBERO workflow.
+registered `jsonl_dir`. RoboTwin 2.0 and RoboDojo-Sim also store episode files
+below `jsonl/`. Follow the [RoboTwin 2.0 guide](dm05_robotwin2.md) to download
+and extract its archive, and the [RoboDojo-Sim guide](dm05_robodojo.md) for
+RoboDojo-Sim. See the [LIBERO guide](dm05_libero.md) for the full LIBERO
+workflow.
 
-These locations match `opendm/dataset/libero.py` and
-`opendm/dataset/robotwin2.py`. If the data is stored elsewhere, pass
-`--data-config.jsonl-dir` and `--data-config.image-dir` when training.
+These locations match `opendm/dataset/libero.py`,
+`opendm/dataset/robotwin2.py`, and `opendm/dataset/robodojo.py`. If the data is
+stored elsewhere, pass `--data-config.jsonl-dir` and `--data-config.image-dir`
+when training.
 
 ## 2. Dataset Layout
 
@@ -88,6 +92,11 @@ in the model's user prompt as `States: ...` text. Setting `add_state=False`
 does not make `state` optional in the JSONL data.
 
 Dexdata dialogue fields such as `answer` and `conversations` are not required.
+
+Mem SFT entries (`playground/dm05_mem_sft_demo.py` and
+`playground/dm05_mem_sft_robodojo_cover_blocks.py`) sample past main-view
+frames from `image_keys[0]` at 1 FPS using the registered dataset `fps`. The
+JSONL does not need a `history_images` field.
 
 ## 4. Action Targets and Episode Boundaries
 
@@ -164,6 +173,7 @@ register_dataset(
 | `image_prompts` | Required. Camera labels one-to-one with `image_keys` for the chat template (e.g. `Head`, `Left wrist`). |
 | `state_desc` | Semantic type of each state dimension. It also identifies dimensions that remain absolute in relative action mode. Supported values are `RobotStateDesc.JOINT`, `RobotStateDesc.EEF`, and `RobotStateDesc.GRIPPER`. |
 | `robot_type` | Robot label, normally one of the values in `RobotType`. It selects the state description and matching normalization profile. Historical untyped data remains supported. |
+| `fps` | Video frame rate. Required when mem SFT samples history frames at 1 FPS. |
 
 Paths may be absolute or relative to the directory from which training is
 launched. Commands in this repository are intended to run from the OpenDM

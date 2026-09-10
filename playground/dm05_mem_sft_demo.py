@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 from dataclasses import dataclass, field
 from typing import Literal
@@ -21,10 +22,19 @@ from opendm.exp.dm05_exp import (
     DM05ModelConfig as _DM05ModelConfig,
 )
 from opendm.exp.dm05_exp import (
+    DM05OptimizerConfig as _DM05OptimizerConfig,
+)
+from opendm.exp.dm05_exp import (
     DM05TrainerConfig as _DM05TrainerConfig,
 )
 
 DEFAULT_CKPT = "./checkpoints/DM05-MEM"
+
+
+@dataclass
+class DM05DataConfig(_DM05DataConfig):
+    dataset_name: str = field(default="demo_mem")
+    is_history: bool = field(default=True)
 
 
 @dataclass
@@ -44,12 +54,20 @@ class DM05ModelConfig(_DM05ModelConfig):
 
 
 @dataclass
-class DM05DataConfig(_DM05DataConfig):
-    is_history: bool = field(default=True)
+class DM05OptimizerConfig(_DM05OptimizerConfig):
+    base_lr: float = field(default=2.5e-5)
 
 
 @dataclass
 class DM05TrainerConfig(_DM05TrainerConfig):
+    output_dir: str = field(
+        default=f"user_checkpoints/{os.path.basename(__file__)[:-3]}"
+    )
+    per_device_train_batch_size: int = field(default=8)
+    gradient_accumulation_steps: int = field(default=1)
+    save_steps: int = field(default=10000)
+    num_train_steps: int = field(default=50000)
+    save_only_model: bool = field(default=False)
     model_max_length: int = field(default=2048)
 
 
@@ -83,11 +101,11 @@ class DM05InferenceConfig(_DM05InferenceConfig):
 
 @dataclass
 class DM05Exp(_DM05Exp):
-    task: Literal["inference"] = field(default="inference")
     use_lora: bool | None = field(default=False)
     model_config: DM05ModelConfig = field(default_factory=DM05ModelConfig)
-    data_config: DM05DataConfig = field(default_factory=DM05DataConfig)
+    optimizer_config: DM05OptimizerConfig = field(default_factory=DM05OptimizerConfig)
     trainer_config: DM05TrainerConfig = field(default_factory=DM05TrainerConfig)
+    data_config: DM05DataConfig = field(default_factory=DM05DataConfig)
     inference_config: DM05InferenceConfig = field(default_factory=DM05InferenceConfig)
 
     def _initialize_inference_runtime(self) -> None:
@@ -131,4 +149,10 @@ class DM05Exp(_DM05Exp):
 
 
 if __name__ == "__main__":
-    tyro.cli(DM05Exp).inference()
+    exp = tyro.cli(DM05Exp)
+    if exp.task == "train":
+        exp.train()
+    elif exp.task == "inference":
+        exp.inference()
+    else:
+        raise ValueError(f"Invalid task: {exp.task}")

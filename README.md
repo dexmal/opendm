@@ -109,7 +109,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
       <td align="right">-</td>
     </tr>
     <tr>
-      <td rowspan="2"><strong><a href="https://github.com/XPolicyLab/XPolicyLab/pull/101">RoboDojo-Sim</a></strong></td>
+      <td rowspan="2"><strong><a href="docs/en/dm05_robodojo.md">RoboDojo-Sim</a></strong></td>
       <td><strong>Score</strong></td>
       <td align="right"><strong>24.90</strong></td>
       <td align="right">3.48</td>
@@ -142,7 +142,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
   </tbody>
 </table>
 
-Click a benchmark name to view the corresponding DM05 training/evaluation guide or evaluation integration.
+Click a benchmark name to view the corresponding DM05 training/evaluation guide or evaluation integration. The RoboDojo-Sim leaderboard numbers are for the released [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim) generalist. The linked guide is the `cover_blocks` single-task SFT reference; its training settings do not reproduce the table scores.
 
 
 ## Quick Start
@@ -356,7 +356,7 @@ Training logs will include data loading, model initialization, loss values, and 
 
 ## DM05 SFT with Demo and Custom Data
 
-Start by running a complete DM05 SFT workflow with the built-in demo data and `playground/dm05_sft_demo.py`. After you are familiar with the data format, normalization statistics, training, inference, and service validation flow, replace the demo dataset with your own robot data for SFT. See [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
+Start by running a complete DM05 SFT workflow with the built-in demo data and `playground/dm05_sft_demo.py`. After you are familiar with the data format, normalization statistics, training, inference, and service validation flow, replace the demo dataset with your own robot data for SFT. See [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md). For DM05-MEM demo SFT, use `playground/dm05_mem_sft_demo.py` and see the [DM05-MEM SFT and Validation Guide](docs/en/dm05_mem_sft.md).
 
 ## Benchmark Fine-Tuning Reference
 
@@ -365,6 +365,7 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 - LIBERO: [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md)
 - RoboTwin2.0: [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md)
 - VLA-Arena: [DM05 VLA-Arena Training and Evaluation Guide](docs/en/dm05_vla_arena.md)
+- RoboDojo-Sim: [DM05 RoboDojo-Sim Training and Evaluation Guide](docs/en/dm05_robodojo.md)
 - SO101: [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md)
 - RoboChallenge Table 30 v2: [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md)
 
@@ -375,7 +376,8 @@ Use the benchmark fine-tuning guides as end-to-end references for data preparati
 - Prepare data: see the [OpenDM Data Guide](docs/en/data.md).
 - Start inference service: see the [DM05 Inference Guide](docs/en/dm05_inference.md).
 - DM05 SFT with demo or custom data: see [DM05 SFT and Validation Guide](docs/en/dm05_finetuning.md).
-- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md), [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md), and [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
+- DM05-MEM SFT with demo data: see [DM05-MEM SFT and Validation Guide](docs/en/dm05_mem_sft.md).
+- Benchmark training and evaluation: see the [DM05 LIBERO Training and Evaluation Guide](docs/en/dm05_libero.md), [DM05 RoboTwin2.0 Training and Evaluation Guide](docs/en/dm05_robotwin2.md), [DM05 RoboDojo-Sim Training and Evaluation Guide](docs/en/dm05_robodojo.md), and [DM05 RoboChallenge Table 30 v2 Inference Guide](docs/en/dm05_robochallenge.md); for LoRA SFT, see [DM05 LIBERO LoRA Training](docs/en/dm05_libero_lora_training.md) and [DM05 SO101 LoRA Training Guide](docs/en/dm05_so101_lora_training.md).
 
 ## Community and Support
 

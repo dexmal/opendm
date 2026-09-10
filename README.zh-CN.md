@@ -109,7 +109,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
       <td align="right">-</td>
     </tr>
     <tr>
-      <td rowspan="2"><strong><a href="https://github.com/XPolicyLab/XPolicyLab/pull/101">RoboDojo-Sim</a></strong></td>
+      <td rowspan="2"><strong><a href="docs/zh/dm05_robodojo.md">RoboDojo-Sim</a></strong></td>
       <td><strong>Score</strong></td>
       <td align="right"><strong>24.90</strong></td>
       <td align="right">3.48</td>
@@ -142,7 +142,7 @@ huggingface-cli download Dexmal/DM05 --local-dir ./checkpoints/DM05
   </tbody>
 </table>
 
-点击表格中的 Benchmark 名称，可查看 DM05 在对应数据集下的训练、评测文档或评测接入。
+点击表格中的 Benchmark 名称，可查看 DM05 在对应数据集下的训练、评测文档或评测接入。RoboDojo-Sim 榜单对应已发布的 [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim) generalist；链接中的指南是 `cover_blocks` 单任务微调参考，其中的训练配置不能直接用来复现表中分数。
 
 ## 快速开始
 
@@ -349,7 +349,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 
 ## DM05 SFT 与自定义数据微调
 
-建议先使用内置 demo 数据和 `playground/dm05_sft_demo.py` 跑通一次完整的 DM05 SFT 流程，熟悉数据格式、归一化统计、训练、推理和服务验证后，再替换为自己的机器人数据进行 SFT。参考 [DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)。
+建议先使用内置 demo 数据和 `playground/dm05_sft_demo.py` 跑通一次完整的 DM05 SFT 流程，熟悉数据格式、归一化统计、训练、推理和服务验证后，再替换为自己的机器人数据进行 SFT。参考 [DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)。DM05-MEM 的 demo SFT 入口为 `playground/dm05_mem_sft_demo.py`，参考 [DM05-MEM SFT 与验证指南](docs/zh/dm05_mem_sft.md)。
 
 ## Benchmark 微调参考流程
 
@@ -358,6 +358,7 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 - LIBERO：[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)
 - RoboTwin2.0：[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)
 - VLA-Arena：[DM05 VLA-Arena 训练与评测指南](docs/zh/dm05_vla_arena.md)
+- RoboDojo-Sim：[DM05 RoboDojo-Sim 训练与评测指南](docs/zh/dm05_robodojo.md)
 - SO101：[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 - RoboChallenge Table 30 v2：[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)
 
@@ -368,7 +369,8 @@ W&B 是可选功能，只有传入项目名称时才会启用。OpenDM 已包含
 - 准备数据：参考 [OpenDM 数据使用指南](docs/zh/data.md)
 - 启动推理服务：参考 [DM05 推理指南](docs/zh/dm05_inference.md)
 - 使用 demo 或自有数据进行 DM05 SFT：参考[DM05 SFT 与验证指南](docs/zh/dm05_finetuning.md)
-- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)、[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)和[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
+- 使用 demo 数据进行 DM05-MEM SFT：参考[DM05-MEM SFT 与验证指南](docs/zh/dm05_mem_sft.md)
+- Benchmark 训练和评测：参考[DM05 LIBERO 训练与评测指南](docs/zh/dm05_libero.md)、[DM05 RoboTwin2.0 训练与评测指南](docs/zh/dm05_robotwin2.md)、[DM05 RoboDojo-Sim 训练与评测指南](docs/zh/dm05_robodojo.md)和[DM05 RoboChallenge Table 30 v2 推理指南](docs/zh/dm05_robochallenge.md)；LoRA SFT 参考[DM05 LIBERO LoRA 训练](docs/zh/dm05_libero_lora_training.md)和[DM05 SO101 LoRA 训练指南](docs/zh/dm05_so101_lora_training.md)
 
 ## 社区与支持
 

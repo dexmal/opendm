@@ -226,6 +226,48 @@ class LoadImages:
         return data
 
 
+class LoadHistory:
+    """Load past main-view frames on a uniform 1 FPS slot grid.
+
+    Slots are oldest-first. Missing frames (before episode start) are dropped
+    so ``history_images`` is the compact valid list consumed by
+    ``ChatTokenization``.
+    """
+
+    def __init__(
+        self,
+        image_key: str = "images_1",
+        image_dir: str = "",
+        max_history_images: int = 32,
+        uniform_fps: float = 1.0,
+    ):
+        self.image_key = image_key
+        self.image_dir = image_dir
+        self.max_history_images = max_history_images
+        self.uniform_fps = uniform_fps
+
+    def __call__(self, data):
+        meta = data["meta_data"]
+        source_fps = float(meta["fps"])
+        frame_index = int(meta["frame_index"])
+        lines = data["raw_lines"]
+        history_images = []
+        for slot in range(self.max_history_images, 0, -1):
+            raw_index = frame_index - int(round(slot / self.uniform_fps * source_fps))
+            if raw_index < 0 or raw_index >= len(lines):
+                continue
+            item = orjson.loads(lines[raw_index])[self.image_key]
+            image_url = os.path.join(self.image_dir, item["url"].lstrip("./"))
+            if item["type"] == "image":
+                history_images.append(_load_image(image_url))
+            elif item["type"] == "video":
+                history_images.append(_load_video(image_url, item["frame_idx"]))
+            else:
+                raise ValueError(f"Invalid history image type: {item['type']}")
+        data["history_images"] = history_images
+        return data
+
+
 class BuildActionChunk:
     """Build a fixed-horizon action sequence from episode JSONL frames.
 
@@ -611,9 +653,10 @@ class ChatTokenization:
     """Tokenize a multimodal robot sample with a chat template.
 
     Current-view images are interleaved via the processor chat template.
-    History uses a fixed 32-slot grid: empty slots are ``<unused1>`` pads,
-    valid images are ``<unused0>`` placeholders (``HISTORY_TOKENS_PER_IMAGE``
-    each) and are injected separately in the model prefix forward.
+    History uses a fixed slot grid (default 32): empty slots are
+    ``<unused1>`` pads, valid images are ``<unused0>`` placeholders
+    (``HISTORY_TOKENS_PER_IMAGE`` each) and are injected separately in the
+    model prefix forward.
 
     Args:
         processor: Multimodal processor or tokenizer-compatible object with
@@ -624,6 +667,7 @@ class ChatTokenization:
         add_state: Whether to append a discretized state text field.
         is_history: Whether to insert history-image placeholders and emit
             ``history_pixel_values`` / ``history_mask``.
+        max_history_images: History slot count when ``is_history`` is set.
         enable_logging: Whether to log the decoded tokenized prompt.
     """
 
@@ -635,6 +679,7 @@ class ChatTokenization:
         image_prompts: list[str] | None = None,
         add_state: bool = True,
         is_history: bool = False,
+        max_history_images: int = 32,
         enable_logging: bool = False,
     ):
         self.processor = processor
@@ -646,6 +691,7 @@ class ChatTokenization:
         self.image_prompts = image_prompts or []
         self.add_state = add_state
         self.is_history = is_history
+        self.max_history_images = max_history_images
         self.enable_logging = enable_logging
         self.history_placeholder_token_id = self.tokenizer.convert_tokens_to_ids(
             "<unused0>"
@@ -691,11 +737,18 @@ class ChatTokenization:
         history_pixel_values = None
         history_mask = None
         if self.is_history:
-            history_images = list(data.get("history_images") or [])[-32:]
+            history_images = [
+                image
+                for image in list(data.get("history_images") or [])[
+                    -self.max_history_images :
+                ]
+                if image is not None
+            ]
             n_valid = len(history_images)
             user_content[-1]["text"] += "History images: "
             user_content[-1]["text"] += (
-                "<unused1>" * (HISTORY_TOKENS_PER_IMAGE * (32 - n_valid))
+                "<unused1>"
+                * (HISTORY_TOKENS_PER_IMAGE * (self.max_history_images - n_valid))
                 + (("<unused0>" * HISTORY_TOKENS_PER_IMAGE) + "\n") * n_valid
             )
             normalized = [image.convert("RGB") for image in history_images]

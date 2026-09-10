@@ -39,6 +39,7 @@ from opendm.data.transforms import (
     BuildAction,
     ChatTokenization,
     Denormalize,
+    LoadHistory,
     LoadImages,
     Normalize,
     PadAction,
@@ -338,10 +339,19 @@ class DM05DataConfig(Config):
         dataset_info = self._dataset_info()
         image_keys = dataset_info["image_keys"]
         image_prompts = dataset_info["image_prompts"]
-        pipeline = Pipeline(
+        pipeline_steps = [
+            self._action_transform(action_horizon),
+            LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
+        ]
+        if self.is_history:
+            pipeline_steps.append(
+                LoadHistory(
+                    image_key=image_keys[0],
+                    image_dir=dataset_info["image_dir"],
+                )
+            )
+        pipeline_steps.extend(
             [
-                self._action_transform(action_horizon),
-                LoadImages(image_keys=image_keys, image_dir=dataset_info["image_dir"]),
                 PixelTransform(
                     transform_pipeline=TrainingTransformPipeline(p=0.5),
                 ),
@@ -356,10 +366,12 @@ class DM05DataConfig(Config):
                     max_length=tokenizer_max_length,
                     image_prompts=image_prompts,
                     add_state=self.add_state,
+                    is_history=self.is_history,
                 ),
                 PadAction(32),
             ]
         )
+        pipeline = Pipeline(pipeline_steps)
         dataset = JsonlDataset(
             jsonl_dir=dataset_info["jsonl_dir"],
             transforms=pipeline,
@@ -662,6 +674,7 @@ class DM05InferenceConfig(Config):
                     image_prompts=self.image_prompts,
                     add_state=add_state,
                     is_history=is_history,
+                    max_history_images=int(self.max_history_images),
                     enable_logging=False,
                 ),
                 ToDevice(device=self.device),

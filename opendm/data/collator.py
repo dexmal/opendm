@@ -90,6 +90,35 @@ class TrainingCollator:
         batch["action"] = torch.cat(action_list, dim=0)
         batch["action_mask"] = torch.cat(action_mask_list, dim=0)
 
+        if any(inst.get("history_mask") is not None for inst in instances):
+            padded_history_mask = []
+            for inst, input_ids in zip(instances, padded_input_ids, strict=True):
+                history_mask = inst.get("history_mask")
+                if history_mask is None:
+                    history_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                elif history_mask.shape[1] < input_ids.shape[1]:
+                    history_mask = torch.cat(
+                        [
+                            history_mask,
+                            torch.zeros(
+                                (1, input_ids.shape[1] - history_mask.shape[1]),
+                                dtype=history_mask.dtype,
+                            ),
+                        ],
+                        dim=1,
+                    )
+                else:
+                    history_mask = history_mask[:, : input_ids.shape[1]]
+                padded_history_mask.append(history_mask)
+            batch["history_mask"] = torch.cat(padded_history_mask, dim=0)
+            history_pixels = [
+                inst["history_pixel_values"]
+                for inst in instances
+                if inst.get("history_pixel_values") is not None
+            ]
+            if history_pixels:
+                batch["history_pixel_values"] = torch.cat(history_pixels, dim=0)
+
         return batch
 
 

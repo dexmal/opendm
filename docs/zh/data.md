@@ -6,12 +6,13 @@ OpenDM 使用 JSON Lines（JSONL）格式的机器人 episode 训练 DM05。本�
 
 ## 1. 使用项目提供的数据（Using Provided Data）
 
-OpenDM 已注册以下两个常用数据集。表中的路径均相对于 OpenDM 仓库根目录。
+OpenDM 已注册以下常用数据集。表中的路径均相对于 OpenDM 仓库根目录。
 
 | 数据集 | 下载地址 | 注册名称 | 注册的 `jsonl_dir` | 注册的 `image_dir` |
 | --- | --- | --- | --- | --- |
 | LIBERO | [Dexmal/libero](https://huggingface.co/datasets/Dexmal/libero) | `libero_pi0_all` | `./data/libero/libero_pi0_all` | `./data/libero/libero_pi0_all/image` |
 | RoboTwin 2.0 | [Dexmal/robotwin2-full](https://huggingface.co/datasets/Dexmal/robotwin2-full) | `robotwin2_generalist` | `./data/robotwin2.0` | `./data/robotwin2.0/video` |
+| RoboDojo-Sim | [Dexmal/robodojo-sim](https://huggingface.co/datasets/Dexmal/robodojo-sim) | `robodojo_sim_cover_blocks` | `./data/robodojo_sim/jsonl/cover_blocks` | `./data/robodojo_sim/video` |
 
 在仓库根目录运行以下命令，即可下载并整理 LIBERO 数据：
 
@@ -20,12 +21,13 @@ script/libero_runner.sh dataset
 ```
 
 LIBERO 的 episode 文件位于其注册 `jsonl_dir` 下的 `jsonl/` 子目录。RoboTwin
-2.0 同样将 episode 文件放在 `jsonl/` 子目录中，下载和解压方法参考
-[RoboTwin 2.0 指南](dm05_robotwin2.md)；完整 LIBERO 流程参考
+2.0 和 RoboDojo-Sim 同样将 episode 文件放在 `jsonl/` 子目录中。RoboTwin 2.0
+的下载和解压方法参考 [RoboTwin 2.0 指南](dm05_robotwin2.md)；RoboDojo-Sim
+参考 [RoboDojo-Sim 指南](dm05_robodojo.md)；完整 LIBERO 流程参考
 [LIBERO 指南](dm05_libero.md)。
 
-这些位置与 `opendm/dataset/libero.py` 和 `opendm/dataset/robotwin2.py` 中的
-注册配置一致。如果数据位于其他位置，训练时可传入 `--data-config.jsonl-dir`
+这些位置与 `opendm/dataset/libero.py`、`opendm/dataset/robotwin2.py` 和
+`opendm/dataset/robodojo.py` 中的注册配置一致。如果数据位于其他位置，训练时可传入 `--data-config.jsonl-dir`
 和 `--data-config.image-dir`。
 
 ## 2. 数据集目录结构
@@ -83,6 +85,10 @@ OpenDM 只会按照注册配置中 `image_keys` 的顺序加载指定媒体字�
 设置 `add_state=False` 并不表示 JSONL 数据可以省略 `state`。
 
 Dexdata 中的 `answer`、`conversations` 等对话字段不是必需项。
+
+mem SFT 入口（`playground/dm05_mem_sft_demo.py` 和
+`playground/dm05_mem_sft_robodojo_cover_blocks.py`）会按数据集注册的 `fps`，
+从主视角 `image_keys[0]` 按 1 FPS 回看过去帧。
 
 ## 4. 动作目标与 Episode 边界
 
@@ -153,6 +159,7 @@ register_dataset(
 | `image_prompts` | 必填。与 `image_keys` 一一对应的相机标签，写入 chat template（如 `Head`、`Left wrist`）。 |
 | `state_desc` | state 每个维度的语义类型；在 relative action 模式下，它也用于标识保持绝对值的维度。支持 `RobotStateDesc.JOINT`、`RobotStateDesc.EEF` 和 `RobotStateDesc.GRIPPER`。 |
 | `robot_type` | 机器人标签，通常使用 `RobotType` 中的值；它用于选择 state 描述和对应机型的归一化统计。历史无标签数据仍受支持。 |
+| `fps` | 视频帧率。mem SFT 按 1 FPS 采样历史帧时需要该字段。 |
 
 路径可以是绝对路径，也可以相对于启动训练时的工作目录。仓库中的示例命令默认
 从 OpenDM 仓库根目录运行。
