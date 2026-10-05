@@ -22,6 +22,7 @@ OpenDM 提供 DM0.5 的模型权重、训练与推理脚本、数据注册示例
 
 ## 🔥 最新动态
 
+- [2026-10-05] 🏆 **KDDI Research 基于 DM0.5 微调的 VLA-DM0.5 模型登顶** [RoboChallenge Table30 V2](https://robochallenge.cn/) 榜单。
 - [2026-09-23] 已在 XPolicyLab 开源 [OpenDM policy](https://github.com/XPolicyLab/XPolicyLab/tree/main/policy/OpenDM)，提供 RoboDojo 数据转换、基于 DM05-MEM 的 memory SFT，以及已发布 DM05-MEM-Robodojo-Sim 模型的仿真评测流程。
 - [2026-09-14] 🏆 **DM0.5 登顶** [RoboColiseum 四项能力榜单](https://robocoliseum.ai/leaderboard)，在指令遵循、空间推理、鲁棒性和通用操作四个维度均排名第一，是唯一包揽四榜第一的模型。
 - [2026-08-26] 发布 [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim)，面向 RoboDojo-Sim 中 ARX X5 双臂操作任务的微调模型，配套评测接入见 [XPolicyLab PR #101](https://github.com/XPolicyLab/XPolicyLab/pull/101)。

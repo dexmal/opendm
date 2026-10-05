@@ -22,6 +22,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## 🔥 News
 
+- [2026-10-05] 🏆 **KDDI Research's VLA-DM0.5 topped** the [RoboChallenge Table30 V2](https://robochallenge.cn/) leaderboard. The model was fine-tuned from DM0.5.
 - [2026-09-23] Open-sourced the [OpenDM policy](https://github.com/XPolicyLab/XPolicyLab/tree/main/policy/OpenDM) in XPolicyLab, including RoboDojo data conversion, DM05-MEM memory SFT, and simulation evaluation of the released DM05-MEM-Robodojo-Sim model.
 - [2026-09-14] 🏆 **DM0.5 ranked first** in Instruction Following, Spatial Reasoning, Robustness, and General Manipulation on [RoboColiseum](https://robocoliseum.ai/leaderboard), making it the only model to sweep all four leaderboards.
 - [2026-08-26] Released [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim), a fine-tuned model for ARX X5 bimanual manipulation tasks in RoboDojo-Sim. See [XPolicyLab PR #101](https://github.com/XPolicyLab/XPolicyLab/pull/101) for evaluation integration.
