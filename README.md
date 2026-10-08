@@ -22,6 +22,7 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 ## 🔥 News
 
+- [2026-10-06] 🤗 **DM0.5 is now officially supported in Hugging Face LeRobot!** This integration brings DM0.5 to the LeRobot ecosystem, making it more accessible to the robotics community. Get started with the [LeRobot guide](https://huggingface.co/docs/lerobot/main/en/dm05).
 - [2026-10-05] 🏆 **KDDI Research's VLA-DM0.5 topped** the [RoboChallenge Table30 V2](https://robochallenge.cn/) leaderboard. The model was fine-tuned from DM0.5.
 - [2026-09-23] Open-sourced the [OpenDM policy](https://github.com/XPolicyLab/XPolicyLab/tree/main/policy/OpenDM) in XPolicyLab, including RoboDojo data conversion, DM05-MEM memory SFT, and simulation evaluation of the released DM05-MEM-Robodojo-Sim model.
 - [2026-09-14] 🏆 **DM0.5 ranked first** in Instruction Following, Spatial Reasoning, Robustness, and General Manipulation on [RoboColiseum](https://robocoliseum.ai/leaderboard), making it the only model to sweep all four leaderboards.
