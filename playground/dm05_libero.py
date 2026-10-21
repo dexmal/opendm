@@ -6,7 +6,6 @@ import tyro
 
 from opendm.constants.robot import ActionMode, RobotType
 from opendm.data.augmentations import NoAugmentationPipeline
-from opendm.data.collator import TrainingCollator
 from opendm.data.dataset import JsonlDataset
 from opendm.data.transforms import (
     ChatTokenization,
@@ -80,6 +79,8 @@ class DM05DataConfig(_DM05DataConfig):
             dataset_name=self.dataset_name,
             dataset_meta=self._dataset_meta(dataset_info),
         )
+
+        from opendm.data.collator import TrainingCollator
 
         collator = TrainingCollator(
             pad_token_id=processor.tokenizer.pad_token_id,
