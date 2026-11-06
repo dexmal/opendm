@@ -32,7 +32,6 @@ from opendm.constants.precision import (
 )
 from opendm.constants.robot import ROBOT_STATE_DESCS, ActionMode, RobotType
 from opendm.data.augmentations import NoAugmentationPipeline, TrainingTransformPipeline
-from opendm.data.collator import NormStatsCollator, TrainingCollator
 from opendm.data.dataset import JsonlDataset
 from opendm.data.transforms import (
     ActionAbsolute,
@@ -62,9 +61,6 @@ from opendm.model.dm05.dm05_utils import (
     configure_fp32_precision_runtime,
     dm05_inference_context,
 )
-from opendm.optimizer import MuonAdamW, mark_muon_parameters
-from opendm.optimizer.muon_adamw import is_default_muon_parameter
-from opendm.trainer.trainer import DMTrainer, safe_save_model_for_hf_trainer
 
 
 @dataclass
@@ -272,13 +268,19 @@ class DM05OptimizerConfig(Config):
         name: str,
         param: torch.nn.Parameter,
     ) -> bool:
+        from opendm.optimizer.muon_adamw import is_default_muon_parameter
+
         return is_default_muon_parameter(name, param)
 
     def prepare_model(self, model: torch.nn.Module) -> None:
         if self.optim == "muon_adamw":
+            from opendm.optimizer import mark_muon_parameters
+
             mark_muon_parameters(model, predicate=self.should_use_muon)
 
-    def build_muon_adamw(self, model: torch.nn.Module) -> MuonAdamW:
+    def build_muon_adamw(self, model: torch.nn.Module) -> "MuonAdamW":
+        from opendm.optimizer import MuonAdamW
+
         return MuonAdamW(
             model,
             lr=self.base_lr,
@@ -440,6 +442,8 @@ class DM05DataConfig(Config):
             dataset_meta=self._dataset_meta(dataset_info),
         )
 
+        from opendm.data.collator import TrainingCollator
+
         collator = TrainingCollator(
             pad_token_id=processor.tokenizer.pad_token_id,
             max_length=tokenizer_max_length,
@@ -463,6 +467,8 @@ class DM05DataConfig(Config):
         batch_size: int = 128,
         num_workers: int = 32,
     ) -> None:
+        from opendm.data.collator import NormStatsCollator
+
         dataset = self.build_norm_stats_dataset(action_horizon)
         dataloader_kwargs = {
             "batch_size": batch_size,
@@ -1616,6 +1622,8 @@ class DM05Exp(Config):
             "train_dataset": train_dataset,
             "data_collator": data_collator,
         }
+        from opendm.trainer.trainer import DMTrainer
+
         trainer = DMTrainer(**trainer_kwargs)
         self.trainer = trainer
 
@@ -1639,6 +1647,8 @@ class DM05Exp(Config):
                 "step checkpoints remain the canonical eval artifacts."
             )
         else:
+            from opendm.trainer.trainer import safe_save_model_for_hf_trainer
+
             safe_save_model_for_hf_trainer(
                 trainer=self.trainer,
                 output_dir=self.trainer_config.output_dir,
