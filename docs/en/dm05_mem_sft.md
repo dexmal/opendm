@@ -95,7 +95,7 @@ This entry defaults `observation.robot_type` to `DOS W1`, `speed` to `"0.1"`, an
 bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
 ```
 
-Keep `chunk_size` consistent with training. You can try executing only the first 5 predicted actions each cycle, then running inference again with fresh images and robot state once execution completes. When using `/v1/infer`, take `actions[:5]` on the client side. A shorter execution window helps correct deviations sooner but increases inference frequency; adjust the number of executed steps based on task performance and inference latency.
+For MEM inference, we recommend retaining one past main-view image approximately every second (about one image every 25 frames for 25 Hz data). Arrange the history images from oldest to newest and pass them through `observation.history_images`.
 
 ## Checklist
 
