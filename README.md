@@ -24,8 +24,8 @@ OpenDM provides DM0.5 model weights, training and inference scripts, dataset reg
 
 - [2026-10-12] Updated the [RoboTwin2.0 SFT recipe](playground/dm05_robotwin2.py) with weighted multi-task sampling, native 14D state/action normalization followed by padding, task/subtask prompt handling.
 - [2026-10-06] 🤗 **DM0.5 is now officially supported in Hugging Face LeRobot!** This integration brings DM0.5 to the LeRobot ecosystem, making it more accessible to the robotics community. Get started with the [LeRobot guide](https://huggingface.co/docs/lerobot/main/en/dm05).
-- [2026-10-05] 🏆 **KDDI Research's VLA-DM0.5 topped** the [RoboChallenge Table30 V2](https://robochallenge.cn/) leaderboard. The model was fine-tuned from DM0.5.
 - [2026-09-23] Open-sourced the [OpenDM policy](https://github.com/XPolicyLab/XPolicyLab/tree/main/policy/OpenDM) in XPolicyLab, including RoboDojo data conversion, DM05-MEM memory SFT, and simulation evaluation of the released DM05-MEM-Robodojo-Sim model.
+- [2026-09-15] 🏆 **KDDI Research's VLA-DM0.5 topped** the [RoboChallenge Table30 V2](https://robochallenge.cn/) leaderboard. The model was fine-tuned from DM0.5.
 - [2026-09-14] 🏆 **DM0.5 ranked first** in Instruction Following, Spatial Reasoning, Robustness, and General Manipulation on [RoboColiseum](https://robocoliseum.ai/leaderboard), making it the only model to sweep all four leaderboards.
 - [2026-08-26] Released [DM05-MEM-Robodojo-Sim](https://huggingface.co/Dexmal/DM05-MEM-Robodojo-Sim), a fine-tuned model for ARX X5 bimanual manipulation tasks in RoboDojo-Sim. See [XPolicyLab PR #101](https://github.com/XPolicyLab/XPolicyLab/pull/101) for evaluation integration.
 - [2026-08-25] 🏆 **DM0.5 topped** the [RoboDojo-Sim](https://robodojo-benchmark.com/) leaderboard, achieving an overall score of 24.90 and an average success rate of 19.34%, with a particularly pronounced lead in the Memory track.

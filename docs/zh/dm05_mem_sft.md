@@ -95,6 +95,8 @@ script/dm05_launcher.sh \
 bash tests/curl_history.sh http://127.0.0.1:7891/v1/infer
 ```
 
+保持 `chunk_size` 与训练一致，可尝试每轮只执行预测动作的前 5 步，完成后根据最新图像和机器人状态重新推理。使用 `/v1/infer` 时，由客户端截取 `actions[:5]`。较短的执行窗口有助于及时修正偏差，但会增加推理频率，建议结合任务效果和推理延迟调整执行步数。
+
 ## 检查清单
 
 - 使用 `script/dm05_launcher.sh --exp playground/dm05_mem_sft_demo.py` 启动。
