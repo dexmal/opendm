@@ -67,6 +67,32 @@ from opendm.optimizer.muon_adamw import is_default_muon_parameter
 from opendm.trainer.trainer import DMTrainer, safe_save_model_for_hf_trainer
 
 
+def default_inference_device(local_rank: int = 0) -> torch.device:
+    """Pick CUDA, then Intel XPU, then CPU for inference."""
+    if torch.cuda.is_available():
+        return torch.device(f"cuda:{local_rank}")
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return torch.device(f"xpu:{local_rank}")
+    return torch.device("cpu")
+
+
+def synchronize_device(device: torch.device) -> None:
+    """Wait for queued kernels on the inference device before timing."""
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    elif device.type == "xpu":
+        torch.xpu.synchronize(device)
+
+
+def seed_inference_rng(seed: int) -> None:
+    """Seed the CPU generator and the CUDA and XPU generators that exist."""
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        torch.xpu.manual_seed_all(seed)
+
+
 @dataclass
 class Config:
     pass
@@ -216,10 +242,12 @@ class DM05ModelConfig(Config):
     def _apply_full_model_runtime_optimizations(
         self, model: DM05ForConditionalGeneration
     ) -> None:
-        if self.liger_kernel and torch.cuda.is_available():
+        device_type = default_inference_device().type
+        if self.liger_kernel and device_type == "cuda":
             model._apply_liger_kernel()
         elif self.liger_kernel:
-            logger.info("CUDA unavailable; skipping Liger Kernel for DM05 model.")
+            # Liger Kernel runs on XPU too, but made bf16 inference slower there.
+            logger.info(f"Skipping Liger Kernel for DM05 model on {device_type}.")
 
     def _wrap_new_lora_for_training(
         self, model: DM05ForConditionalGeneration
@@ -618,10 +646,7 @@ class DM05InferenceConfig(Config):
         is_history: bool = False,
     ) -> None:
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        if torch.cuda.is_available():
-            self.device = torch.device(f"cuda:{local_rank}")
-        else:
-            self.device = torch.device("cpu")
+        self.device = default_inference_device(local_rank)
 
         if self.chat_only:
             model.eval()
@@ -1009,10 +1034,7 @@ class DM05InferenceConfig(Config):
         state = data["state"] if self.use_transformed_state else original_state
         inference_seed = os.environ.get("DM05_INFERENCE_SEED")
         if inference_seed is not None:
-            seed = int(inference_seed)
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
+            seed_inference_rng(int(inference_seed))
         prefix_len = int(model_input["input_ids"].shape[1])
         if self.backend == "fast" and prefix_len > self.fast_runtime.prefix_len:
             raise BadRequest(
@@ -1039,8 +1061,7 @@ class DM05InferenceConfig(Config):
             "history_pixel_values": model_input.get("history_pixel_values"),
             "history_mask": model_input.get("history_mask"),
         }
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        synchronize_device(self.device)
         model_t0 = time.perf_counter()
         if self.backend == "fast":
             actions = self.fast_runtime.inference_action(
@@ -1049,8 +1070,7 @@ class DM05InferenceConfig(Config):
         else:
             with dm05_inference_context(self.device, dm05_model.precision_policy):
                 actions = self.model.inference_action(**inference_kwargs)
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        synchronize_device(self.device)
         self.last_model_latency_sec = time.perf_counter() - model_t0
 
         if int(actions.shape[-1]) < self.output_action_dim:
@@ -1092,9 +1112,7 @@ class DM05InferenceConfig(Config):
         if seed is not None:
             seed = int(seed)
             np.random.seed(seed)
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
+            seed_inference_rng(seed)
 
     def _parse_image_slot(self, slot) -> int:
         try:
@@ -1399,15 +1417,19 @@ class DM05InferenceConfig(Config):
                 key: value.to(self.device) if value is not None else None
                 for key, value in model_input.items()
             }
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            synchronize_device(self.device)
             model_t0 = time.perf_counter()
             try:
                 if do_sample:
                     rng_devices = (
-                        [self.device.index] if self.device.type == "cuda" else []
+                        [self.device.index]
+                        if self.device.type in ("cuda", "xpu")
+                        else []
                     )
-                    rng_context = torch.random.fork_rng(devices=rng_devices)
+                    rng_context = torch.random.fork_rng(
+                        devices=rng_devices,
+                        device_type="xpu" if self.device.type == "xpu" else "cuda",
+                    )
                 else:
                     rng_context = nullcontext()
                 dm05_model = unwrap_dm05_model(self.model)
@@ -1439,8 +1461,7 @@ class DM05InferenceConfig(Config):
                 logger.exception(f"v1/chat/completions generation error: {exc}")
                 return jsonify({"error": message}), 500
 
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+            synchronize_device(self.device)
             model_latency_sec = time.perf_counter() - model_t0
 
             text = tokenizer.decode(output.token_ids, skip_special_tokens=True)
@@ -1655,6 +1676,16 @@ class DM05Exp(Config):
         self.model_config.llm_attn_implementation = (
             "flex_attention" if use_fast_backend else "eager"
         )
+        device_type = default_inference_device().type
+        if (
+            self.model_config.vision_attn_implementation == "flash_attention_2"
+            and device_type != "cuda"
+        ):
+            logger.info(
+                "flash_attention_2 needs CUDA; using sdpa for DM05 vision "
+                f"attention on {device_type}."
+            )
+            self.model_config.vision_attn_implementation = "sdpa"
         if chat_only:
             logger.info(f"Loading model from {self.model_config.model_name_or_path}")
             model = self.model_config.build_model(use_lora=self.use_lora)
