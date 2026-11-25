@@ -241,6 +241,42 @@ cd opendm
 pip install -e .
 ```
 
+### 在 Intel GPU (XPU) 上运行
+
+默认推理后端也可以通过 PyTorch XPU 在 Intel GPU（例如 Intel Arc Pro B60）上运行。
+先安装 XPU 版本的 PyTorch，再安装 OpenDM 依赖：
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/xpu
+
+# 进入 OpenDM 仓库根目录。
+cd opendm
+pip install -e . --no-deps
+pip install -r requirements-xpu.txt
+```
+
+启动服务的命令与 CUDA 相同。设备自动选择：有 CUDA 时用 CUDA，其次是 XPU，最后是 CPU。
+
+```bash
+script/dm05_launcher.sh \
+  --exp playground/dm05_libero.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05-libero \
+  --model-config.chunk-size 10 \
+  --inference-config.output-action-dim 7 \
+  --inference-config.image-prompts "Head" "Left wrist" \
+  --inference-config.port 7891
+```
+
+XPU 说明（适用于上面的 dm05_libero.py）：
+
+- 视觉注意力从 `flash_attention_2` 回退为 `sdpa`。
+- 动作后缀以 eager 模式运行，不使用 CUDA Graph 回放。
+- 推理时服务会把语言模型注意力设为 `eager`，因此
+  `--model-config.llm-attn-implementation` 在推理时不生效。
+- Liger Kernel 只在 CUDA 上启用。
+- `fast` 后端（TensorRT、Triton、FP8）和训练需要 CUDA。
+
 ### Fast Backend 环境层
 
 上面的 Docker / 本地安装还不足以运行 `--inference-config.backend fast`。请在同一个

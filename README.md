@@ -244,6 +244,43 @@ cd opendm
 pip install -e .
 ```
 
+### Run on Intel GPU (XPU)
+
+The default inference backend also runs on Intel GPUs (for example Intel Arc Pro
+B60) through PyTorch XPU. Install the XPU build of PyTorch first, then OpenDM dependencies:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/xpu
+
+# Enter the OpenDM repository root.
+cd opendm
+pip install -e . --no-deps
+pip install -r requirements-xpu.txt
+```
+
+Start the service with the same command as on CUDA. The device is picked
+automatically: CUDA if available, then XPU, then CPU.
+
+```bash
+script/dm05_launcher.sh \
+  --exp playground/dm05_libero.py \
+  --task inference \
+  --model-config.model-name-or-path ./checkpoints/DM05-libero \
+  --model-config.chunk-size 10 \
+  --inference-config.output-action-dim 7 \
+  --inference-config.image-prompts "Head" "Left wrist" \
+  --inference-config.port 7891
+```
+
+Notes for XPU (dm05_libero.py above):
+
+- Vision attention falls back from `flash_attention_2` to `sdpa`.
+- The action suffix runs eagerly, without CUDA Graph replay.
+- The service sets the language model attention to `eager` at inference, so
+  `--model-config.llm-attn-implementation` has no effect there.
+- Liger Kernel applies on CUDA only.
+- The `fast` backend (TensorRT, Triton, FP8) and training need CUDA.
+
 ### Fast Backend Environment Layer
 
 The Docker and local installation steps above are not enough for
